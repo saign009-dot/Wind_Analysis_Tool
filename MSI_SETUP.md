@@ -69,25 +69,24 @@ or an absolute Linux path:
 
 ## Create a Python Environment
 
-In an MSI terminal, try the conda/mamba route first if it is available:
+Follow [MSI's best practices for managing conda environments](https://msi.umn.edu/getting-started/help/knowledge-base/best-practices-conda). MSI recommends Miniforge because it uses community-managed channels by default.
+
+Create a dedicated, self-contained environment in an appropriate software location. Replace `/path/to/software` with a durable location in your group directory or personal software directory:
 
 ```bash
 cd /scratch.global/YOUR_X500/MCAP
-module load mamba
-mamba create -n mcap-wind -c conda-forge python=3.11 xarray dask netcdf4 h5netcdf scipy matplotlib pandas pytest ipykernel -y
-conda activate mcap-wind
+module load miniforge
+conda create --copy -p /path/to/software/mcap-wind-env python=3.11 numpy pandas xarray dask netcdf4 h5netcdf scipy matplotlib pytest ipykernel -y
+source activate /path/to/software/mcap-wind-env
 python -m ipykernel install --user --name mcap-wind --display-name "Python (MCAP wind)"
 ```
 
-If `mamba` is not available, try a Python virtual environment:
+MSI recommends `source activate` for HPC environments rather than `conda activate`. Keep the environment outside the Git repository; commit an environment snapshot, not the installed environment itself.
+
+After the environment is working, record its package versions for reproducibility:
 
 ```bash
-cd /scratch.global/YOUR_X500/MCAP
-python3 -m venv mcap-wind-env
-source mcap-wind-env/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r Wind_Analysis_Tool/requirements.txt
-python -m ipykernel install --user --name mcap-wind --display-name "Python (MCAP wind)"
+conda env export --no-builds > Wind_Analysis_Tool/environment.yml
 ```
 
 ## Open Jupyter on MSI
