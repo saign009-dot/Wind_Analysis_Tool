@@ -15,6 +15,22 @@ It is designed for:
 - Percentiles: 98th and 99.9th
 - NetCDF input
 
+## Input Data Preprocessing
+
+The NetCDF inputs analyzed by WASP were first spatially masked to Minnesota and then split into DJF, MAM, JJA, and SON files. The programs used for that preparation are preserved in `preprocessing/`:
+
+1. `directory_subdirectory_maker.sh` creates the original model/scenario scratch-directory layout.
+2. `make_mn_masks.py` builds a grid-specific Minnesota mask for each model using a U.S. Census state-boundary shapefile.
+3. `mask_and_split_all.sh` applies each mask with CDO `ifthen` and creates the four seasonal files with CDO `selseas`.
+4. `mask_and_split_all_forMIROC.sh` is the MIROC-specific rerun used when processing that model separately.
+
+These scripts preserve the project-specific MSI paths used for the analysis. Review `PROJECT_ROOT`, `TOOL_ROOT`, `MASK_DIR`, `SOURCE_BASE`, `STATE_SHAPEFILE`, model names, and filename patterns before reusing them. The masking scripts default to a non-writing preview; pass `run` only after reviewing the displayed paths.
+
+```bash
+bash preprocessing/mask_and_split_all.sh
+bash preprocessing/mask_and_split_all.sh run
+```
+
 ## Recommended Workflow
 
 1. On MSI, use the Miniforge environment workflow in [`MSI_SETUP.md`](../MSI_SETUP.md), following [MSI's conda best practices](https://msi.umn.edu/getting-started/help/knowledge-base/best-practices-conda). On other systems, install the dependencies with `python -m pip install -r requirements.txt`.
@@ -42,6 +58,42 @@ The `WASP` branch also includes the ensemble-analysis programs:
 - The `slurm_p98_*.sh` and `slurm_p99_9_*.sh` launchers run the model-change, ensemble, and trend stages for the 98th and 99.9th percentiles.
 
 The Slurm launchers write generated products below `WASP/outputs/` by default.
+
+### Slurm Runtime Directories
+
+Run the ensemble commands from the `WASP/` directory. The tracked programs and generated runtime folders are organized as follows:
+
+```text
+WASP/
+  preprocessing/                 # Masking and seasonal-splitting programs
+  src/wind_extreme_analysis/     # Reusable Python package and manifest builder
+  tests/                         # Unit tests
+  manifests/                     # Generated task tables; not tracked by Git
+    ensemble_tasks.csv           # 216 model/scenario/period/season tasks
+  logs/                          # Generated Slurm stdout and stderr; not tracked
+  Outputs/                       # Original notebook workflow products
+  outputs/                       # Ensemble workflow products
+    p98_model_changes/
+    p98_model_changes_final/     # Default input expected by later p98 stages
+    p98_ensemble/
+    p98_ensemble_trends/
+    p99_9_model_changes_final/
+    p99_9_ensemble_final/
+    p99_9_ensemble_trends/
+```
+
+Create `logs/` before submitting jobs, then validate the ensemble inputs and write the manifest:
+
+```bash
+mkdir -p logs manifests
+PYTHONPATH=src python -m wind_extreme_analysis.ensemble_manifest \
+  --analysis-root /path/to/model_run_analysis \
+  --output manifests/ensemble_tasks.csv
+```
+
+The manifest input root must use the model/run layout accepted by `ensemble_manifest.py`, such as `MODEL/historical_1995-2014/` and `MODEL/ssp245_2040-2059/`, with either seasonal files directly in each run directory or in a nested `seasons/` directory. The original preprocessing scripts preserve their historical staging paths, so copy, link, or point the processed seasonal files into this manifest layout before submitting the ensemble arrays.
+
+The p98 change launcher writes to `outputs/p98_model_changes/`, while the later p98 ensemble and trend launchers default to `outputs/p98_model_changes_final/`. After quality control, either move/copy the accepted results to the latter directory or override `INPUT_ROOT` when submitting those stages.
 
 ## Tests
 

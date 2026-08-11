@@ -9,3 +9,6 @@ WASP/Outputs/
 WASP/outputs/
 WASP/logs/
 WASP/manifests/
+WASP/Analysis/
+WASP/masks/
+WASP/mn_mask_*.nc

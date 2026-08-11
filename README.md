@@ -18,8 +18,11 @@ WASP does not require MSI or another high-performance computing (HPC) system. Sm
 ## WASP Contents
 
 - [`WASP/`](WASP/) contains the analysis package, notebook, configuration, tests, CSV summary utility, ensemble workers, and Slurm launchers.
+- [`WASP/preprocessing/`](WASP/preprocessing/) contains the programs used to create Minnesota masks, apply them to the source NetCDF files, and split the masked files into meteorological seasons.
 - [`WASP/README.md`](WASP/README.md) contains detailed workflow and statistical-method documentation.
 - [`MSI_SETUP.md`](MSI_SETUP.md) documents the MSI Miniforge setup and folder layout.
+
+During Slurm ensemble runs, WASP creates untracked `WASP/manifests/`, `WASP/logs/`, and `WASP/outputs/` directories for task tables, scheduler logs, and calculated products. Their expected structure and creation commands are documented in `MSI_SETUP.md`.
 
 ## Added Ensemble Capabilities
 
