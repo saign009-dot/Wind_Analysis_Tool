@@ -11,6 +11,10 @@ This repository intentionally maintains two versions:
 
 The branches remain separate to make the change in methodology explicit and reproducible. The `WASP` branch should not be merged into `main`, because `main` serves as the historical record.
 
+## Computing Requirements
+
+WASP does not require MSI or another high-performance computing (HPC) system. Small tests, individual models, and the final ensemble summaries can be run on a sufficiently capable local computer. MSI or comparable HPC resources are strongly recommended for the complete six-model 98th- and 99.9th-percentile analysis because it consists of hundreds of independent, memory-intensive NetCDF tasks. The included Slurm launchers are specifically intended for running that full workflow on MSI.
+
 ## WASP Contents
 
 - [`WASP/`](WASP/) contains the analysis package, notebook, configuration, tests, CSV summary utility, ensemble workers, and Slurm launchers.
