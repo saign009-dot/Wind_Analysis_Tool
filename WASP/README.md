@@ -17,7 +17,7 @@ It is designed for:
 
 ## Recommended Workflow
 
-1. Install Python dependencies in the environment where you run Jupyter: pip install -r requirements.txt
+1. On MSI, use the Miniforge environment workflow in [`MSI_SETUP.md`](../MSI_SETUP.md), following [MSI's conda best practices](https://msi.umn.edu/getting-started/help/knowledge-base/best-practices-conda). On other systems, install the dependencies with `python -m pip install -r requirements.txt`.
 
 2. Open the notebook: wind_extreme_control.ipynb
   
