@@ -2,7 +2,7 @@
 
 W.A.S.P. analyzes changes in wind-speed percentiles between a historical baseline and future climate scenarios. It combines the original Wind Analysis Tool workflow with the later multi-model ensemble calculations.
 
-## Scientific Version History
+## Version History
 
 - The repository's `main` branch preserves the original Wind Analysis Tool code without the ensemble-analysis additions.
 - The `WASP` branch contains the renamed Wind Analysis and Statistics Package and the ensemble workflow added during the reanalysis.
@@ -27,7 +27,7 @@ It is designed for:
 
 The code lives in `src/wind_extreme_analysis` so the same workflow can be reused for other variables and datasets
 
-This folder intentionally does not duplicate the large NetCDF files. Paths are resolved relative to the `wind_program` parent folder.
+This folder intentionally does not duplicate the large NetCDF files. Paths are resolved relative to the parent folder.
 
 Outputs from the bundled notebook are written inside this folder: `WASP/Outputs/`.
 
