@@ -20,10 +20,14 @@ from percentile_ensemble_worker import (
 
 
 SCENARIO_COLORS = {
-    "ssp245": "#2b8cbe",
-    "ssp370": "#f39c34",
-    "ssp585": "#c43c39",
+    # Colorblind-friendly blue, orange, and reddish purple keep overlapping
+    # spread bands visually distinct.
+    "ssp245": "#0072B2",
+    "ssp370": "#E69F00",
+    "ssp585": "#CC79A7",
 }
+
+SPREAD_ALPHA = 0.20
 
 
 def area_weighted_regional_mean(field: xr.DataArray) -> float:
@@ -143,7 +147,7 @@ def plot_trends(
                 mean - spread,
                 mean + spread,
                 color=color,
-                alpha=0.17,
+                alpha=SPREAD_ALPHA,
                 linewidth=0,
             )
         axis.axhline(0, color="#333333", linewidth=0.9, linestyle="--")
@@ -181,7 +185,8 @@ def plot_trends(
     fig.text(
         0.5,
         0.015,
-        "Lines show the six-model ensemble mean; shading shows ±1 sample SD across models.",
+        "Lines show six-model ensemble means; shading represents inter-model spread "
+        "(±1 sample SD), not confidence intervals.",
         ha="center",
         fontsize=10,
     )

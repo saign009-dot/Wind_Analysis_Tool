@@ -95,6 +95,8 @@ The manifest input root must use the model/run layout accepted by `ensemble_mani
 
 The p98 change launcher writes to `outputs/p98_model_changes/`, while the later p98 ensemble and trend launchers default to `outputs/p98_model_changes_final/`. After quality control, either move/copy the accepted results to the latter directory or override `INPUT_ROOT` when submitting those stages.
 
+In the seasonal trend figures, lines show the six-model ensemble means and the colored shading represents inter-model spread (±1 sample standard deviation). The shading is not a confidence interval and should not be interpreted by itself as a statistical-significance test.
+
 ## Tests
 
 Run the tests with: pytest
