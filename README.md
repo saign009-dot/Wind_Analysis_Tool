@@ -17,4 +17,4 @@ The branches remain separate to make the point reanalysis occurred clear. The `W
 - [`Wind_Analysis_Tool/README.md`](Wind_Analysis_Tool/README.md) contains the detailed workflow and statistical-method documentation.
 - [`MSI_SETUP.md`](MSI_SETUP.md) documents the MSI Miniforge setup and recommended folder layout.
 
-Large NetCDF inputs and generated analysis products are intentionally excluded from the repository.
+Large NetCDF inputs and outputs found on MCAP MSI storage and the MCAP team drive under proj_wind analysis_undergradRA, respectively
