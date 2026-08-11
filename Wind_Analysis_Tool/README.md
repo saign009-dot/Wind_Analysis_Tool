@@ -10,6 +10,25 @@ It is designed for:
 - Percentiles: 98th and 99.9th
 - NetCDF input
 
+## Input Data Preprocessing
+
+The NetCDF inputs used by the original Wind Analysis Tool were spatially masked to Minnesota and split into DJF, MAM, JJA, and SON files. The original, unmodified programs used for that preparation are preserved in `preprocessing/`:
+
+1. `directory_subdirectory_maker.sh` creates the original model/scenario scratch-directory layout.
+2. `make_mn_masks.py` builds a grid-specific Minnesota mask for each model using a U.S. Census state-boundary shapefile.
+3. `mask_and_split_all.sh` applies each mask with CDO `ifthen` and creates four seasonal files with CDO `selseas`.
+4. `mask_and_split_all_forMIROC.sh` is the MIROC-specific rerun used when processing that model separately.
+
+These provenance copies retain the absolute MSI paths, model lists, and filename patterns used during the original analysis. Review those paths before rerunning the programs on another account or folder. The masking scripts default to a non-writing preview; pass `run` only after reviewing the displayed paths.
+
+```bash
+python preprocessing/make_mn_masks.py
+bash preprocessing/mask_and_split_all.sh
+bash preprocessing/mask_and_split_all.sh run
+```
+
+`make_mn_masks.py` writes `mn_mask_*.nc` into the original tool directory, while the masking scripts read them from the sibling `masks/` directory defined by `MASK_DIR`. Copy or link the validated masks into that directory before running the masking scripts.
+
 ## Recommended Workflow
 
 1. On MSI, use the Miniforge environment workflow in [`MSI_SETUP.md`](../MSI_SETUP.md), following [MSI's conda best practices](https://msi.umn.edu/getting-started/help/knowledge-base/best-practices-conda). On other systems, install the dependencies with `python -m pip install -r requirements.txt`.

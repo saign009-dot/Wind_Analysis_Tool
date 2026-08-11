@@ -9,10 +9,17 @@ Keep the same simple layout:
 ```text
 /scratch.global/YOUR_X500/MCAP/
   Wind_Analysis_Tool/
+    preprocessing/
     wind_extreme_control.ipynb
     wind_extremes.config.json
     src/
     tests/
+    Analysis/
+      historical_1995-2014/
+        seasons/
+      ssp245_2040-2059/
+        seasons/
+      ...
     outputs/
   Analysis/
     WSPD10_BCC-CSM2-MR_historical_1995-2014.nc
@@ -21,7 +28,7 @@ Keep the same simple layout:
     ...
 ```
 
-`Wind_Analysis_Tool` is the program. `Analysis` is the data folder. `Wind_Analysis_Tool/outputs` is created when the notebook runs.
+`Wind_Analysis_Tool` is the program. The sibling `Analysis` folder is the simple notebook input layout, while the unchanged preprocessing scripts write their seasonal products below `Wind_Analysis_Tool/Analysis/`. The notebook can use either location when its configuration paths are set consistently. `Wind_Analysis_Tool/outputs` is created when the notebook runs.
 
 ## Upload Only the Tool Folder
 
@@ -76,7 +83,7 @@ Create a dedicated, self-contained environment in an appropriate software locati
 ```bash
 cd /scratch.global/YOUR_X500/MCAP
 module load miniforge
-conda create --copy -p /path/to/software/mcap-wind-env python=3.11 numpy pandas xarray dask netcdf4 h5netcdf scipy matplotlib pytest ipykernel -y
+conda create --copy -p /path/to/software/mcap-wind-env python=3.11 numpy pandas xarray dask netcdf4 h5netcdf scipy matplotlib pytest ipykernel cdo geopandas regionmask -y
 source activate /path/to/software/mcap-wind-env
 python -m ipykernel install --user --name mcap-wind --display-name "Python (MCAP wind)"
 ```
@@ -88,6 +95,23 @@ After the environment is working, record its package versions for reproducibilit
 ```bash
 conda env export --no-builds > Wind_Analysis_Tool/environment.yml
 ```
+
+## Reproduce Masking and Seasonal Splitting
+
+The original preprocessing programs are preserved unchanged in `Wind_Analysis_Tool/preprocessing/`. They depend on CDO, GeoPandas, Regionmask, Xarray, the source WSPD10 NetCDF files, and the 2024 U.S. Census state-boundary shapefile referenced by `make_mn_masks.py`.
+
+The programs retain the absolute MSI paths used during the original work. Before rerunning them, review `PROJECT_ROOT`, `TOOL_ROOT`, `MASK_DIR`, `SOURCE_BASE`, and `STATE_SHAPEFILE`. Generate and inspect the model-specific masks first. The mask generator writes them to `TOOL_ROOT`, while the seasonal-splitting scripts expect them in `MASK_DIR`, so copy or link the accepted files to that directory.
+
+Preview the CDO work before allowing writes:
+
+```bash
+cd /projects/standard/hroop/shared/YOUR_X500/wind_program/Wind_Analysis_Tool
+python preprocessing/make_mn_masks.py
+bash preprocessing/mask_and_split_all.sh
+bash preprocessing/mask_and_split_all.sh run
+```
+
+Use `mask_and_split_all_forMIROC.sh` only for the separate MIROC rerun. The seasonal files are written below `Wind_Analysis_Tool/Analysis/<run>/seasons/` using the original filename conventions.
 
 ## Open Jupyter on MSI
 

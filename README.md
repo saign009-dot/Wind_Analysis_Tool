@@ -14,6 +14,7 @@ The branches remain separate to make the methodological change explicit and repr
 ## Original Tool Contents
 
 - [`Wind_Analysis_Tool/`](Wind_Analysis_Tool/) contains the original analysis package, notebook, configuration, tests, and CSV summary utility.
+- [`Wind_Analysis_Tool/preprocessing/`](Wind_Analysis_Tool/preprocessing/) contains the original programs used to create Minnesota masks, apply them to the source NetCDF files, and split the masked files into meteorological seasons.
 - [`Wind_Analysis_Tool/README.md`](Wind_Analysis_Tool/README.md) contains the detailed workflow and statistical-method documentation.
 - [`MSI_SETUP.md`](MSI_SETUP.md) documents the MSI Miniforge setup and folder layout.
 
