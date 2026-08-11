@@ -1,0 +1,36 @@
+
+#run 'pip install -e' in the CLI to get all dependencies sorted otherwise this file can be ignored
+
+
+[project]
+name = "mcap-wind-extremes"
+version = "0.1.0"
+description = "Notebook-first workflow for Minnesota climate wind extreme percentile analysis."
+readme = "README_wind_extremes.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "pandas",
+  "xarray",
+  "dask",
+  "netCDF4",
+  "h5netcdf",
+  "scipy",
+  "matplotlib",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+]
+
+[project.scripts]
+wind-extremes = "wind_extreme_analysis.workflow:main"
+uv-to-wspd = "wind_extreme_analysis.uv_to_speed:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

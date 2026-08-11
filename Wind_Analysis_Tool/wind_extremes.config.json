@@ -1,0 +1,82 @@
+{
+  "analysis_name": "mcap_wind_extremes",
+  "output_dir": "Wind_Analysis_Tool/Outputs",
+  "percentiles": [0.98, 0.999],
+  "alpha": 0.05,
+  "bootstrap_iterations": 1000,
+  "block_bootstrap_timesteps": 56,
+  "make_grid_significance_maps": false,
+  "datasets": {
+    "WSPD10": {
+      "description": "10 m wind speed magnitude. Replace placeholders before running.",
+      "variable": "WSPD10",
+      "time_dim": "time",
+      "lat_name": "lat",
+      "lon_name": "lon",
+      "chunks": {
+        "time": 720
+      },
+      "historical": {
+        "label": "historical_1995_2014",
+        "path": "Analysis/WSPD10_BCC-CSM2-MR_historical_1995-2014_chname_U10_WSPD10-sqrt-add-sqr-selname_U10.nc",
+        "years": [1995, 2014]
+      },
+      "futures": [
+        {
+          "scenario": "ssp245",
+          "period": "2040-2059",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp245_2040-2059_chname_U10_WSPD10-sqrt-add-sqr-selname_U10.nc",
+          "years": [2040, 2059]
+        },
+        {
+          "scenario": "ssp245",
+          "period": "2060-2079",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp245_2060-2079_daymean.nc",
+          "years": [2060, 2079]
+        },
+        {
+          "scenario": "ssp245",
+          "period": "2080-2099",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp245_2080-2099_daymean.nc",
+          "years": [2080, 2099]
+        },
+        {
+          "scenario": "ssp370",
+          "period": "2040-2059",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp370_2040-2059_daymean.nc",
+          "years": [2040, 2059]
+        },
+        {
+          "scenario": "ssp370",
+          "period": "2060-2079",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp370_2060-2079_daymean.nc",
+          "years": [2060, 2079]
+        },
+        {
+          "scenario": "ssp370",
+          "period": "2080-2099",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp370_2080-2099_daymean.nc",
+          "years": [2080, 2099]
+        },
+        {
+          "scenario": "ssp585",
+          "period": "2040-2059",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp585_2040-2059_daymean.nc",
+          "years": [2040, 2059]
+        },
+        {
+          "scenario": "ssp585",
+          "period": "2060-2079",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp585_2060-2079_daymean.nc",
+          "years": [2060, 2079]
+        },
+        {
+          "scenario": "ssp585",
+          "period": "2080-2099",
+          "path": "Analysis/WSPD10_BCC-CSM2-MR_ssp585_2080-2099_daymean.nc",
+          "years": [2080, 2099]
+        }
+      ]
+    }
+  }
+}
