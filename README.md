@@ -1,8 +1,8 @@
 # W.A.S.P. — Wind Analysis and Statistics Package
 
-This `WASP` branch contains the refined Wind Analysis and Statistics Package, including the original wind-analysis workflow and the later multi-model ensemble calculations.
+This `WASP` branch contains the refined 'Wind Analysis and Statistics Package', including the original single model wind-analysis workflow and the later multi-model ensemble calculations.
 
-## Scientific Lineage
+## Version History
 
 This repository intentionally maintains two versions:
 
@@ -17,15 +17,15 @@ WASP does not require MSI or another high-performance computing (HPC) system. Sm
 
 ## WASP Contents
 
-- [`WASP/`](WASP/) contains the analysis package, notebook, configuration, tests, CSV summary utility, ensemble workers, and Slurm launchers.
+- [`WASP/`](WASP/) contains the analysis package, notebook, configuration, tests, ensemble workers, and Slurm launchers. The retained `count_csv_trues.py` summary utility is preserved for provenance but is not recommended for analysis because its metric has limited scientific value.
 - [`WASP/preprocessing/`](WASP/preprocessing/) contains the programs used to create Minnesota masks, apply them to the source NetCDF files, and split the masked files into meteorological seasons.
 - [`WASP/README.md`](WASP/README.md) contains detailed workflow and statistical-method documentation.
-- [`MSI_SETUP.md`](MSI_SETUP.md) documents the MSI Miniforge setup and folder layout.
+- [`MSI_SETUP.md`](MSI_SETUP.md) documents the MSI Miniforge setup and recommended folder layout.
 
 During Slurm ensemble runs, WASP creates untracked `WASP/manifests/`, `WASP/logs/`, and `WASP/outputs/` directories for task tables, scheduler logs, and calculated products. Their expected structure and creation commands are documented in `MSI_SETUP.md`.
 
 ## Added Ensemble Capabilities
 
-The WASP workflow includes model-level 98th- and 99.9th-percentile change calculations, six-model ensemble means, inter-model sample standard deviations, model counts, regional summaries, trend plots, and Slurm launchers for MSI.
+The WASP workflow includes model-level 98th and 99.9th percentile change calculations, six-model ensemble means, inter-model sample standard deviations, model counts, summaries, trend plots, and Slurm launchers for MSI.
 
-Large NetCDF inputs and generated analysis products are intentionally excluded from the repository.
+Large NetCDF inputs and generated outputs are intentionally not duplicated in this repository. They are stored, respectively, on MCAP MSI storage and in the MCAP team drive under `proj_wind analysis_undergradRA`.
