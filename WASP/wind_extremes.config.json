@@ -1,6 +1,6 @@
 {
-  "analysis_name": "mcap_wind_extremes",
-  "output_dir": "Wind_Analysis_Tool/Outputs",
+  "analysis_name": "WASP",
+  "output_dir": "WASP/Outputs",
   "percentiles": [0.98, 0.999],
   "alpha": 0.05,
   "bootstrap_iterations": 1000,

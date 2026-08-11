@@ -1,4 +1,4 @@
-# Running the Wind Analysis Tool on MSI Jupyter
+# Running W.A.S.P. (Wind Analysis and Statistics Package) on MSI Jupyter
 
 Use this when the NetCDF data are already on MSI and you do not want to download tens of GB locally.
 
@@ -8,7 +8,7 @@ Keep the same simple layout:
 
 ```text
 /scratch.global/YOUR_X500/MCAP/
-  Wind_Analysis_Tool/
+  WASP/
     wind_extreme_control.ipynb
     wind_extremes.config.json
     src/
@@ -21,21 +21,21 @@ Keep the same simple layout:
     ...
 ```
 
-`Wind_Analysis_Tool` is the program. `Analysis` is the data folder. `Wind_Analysis_Tool/outputs` is created when the notebook runs.
+`WASP` is the program. `Analysis` is the data folder. `WASP/Outputs` is created when the notebook runs.
 
 ## Upload Only the Tool Folder
 
 From Windows PowerShell, upload the small tool folder:
 
 ```powershell
-scp -r C:\Users\wesja\Desktop\MCAP\Wind_Analysis_Tool YOUR_X500@login.msi.umn.edu:/scratch.global/YOUR_X500/MCAP/
+scp -r .\WASP YOUR_X500@login.msi.umn.edu:/scratch.global/YOUR_X500/MCAP/
 ```
 
 Do not upload the giant NetCDF files if they already exist on MSI.
 
 ## Put or Link the Data on MSI
 
-If the data are already in another MSI folder, either update `wind_extremes.config.json` to use those absolute MSI paths, or make an `Analysis` folder next to `Wind_Analysis_Tool`.
+If the data are already in another MSI folder, either update `wind_extremes.config.json` to use those absolute MSI paths, or make an `Analysis` folder next to `WASP`.
 
 Relative paths in the config are easiest:
 
@@ -86,7 +86,7 @@ cd /scratch.global/YOUR_X500/MCAP
 python3 -m venv mcap-wind-env
 source mcap-wind-env/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r Wind_Analysis_Tool/requirements.txt
+python -m pip install -r WASP/requirements.txt
 python -m ipykernel install --user --name mcap-wind --display-name "Python (MCAP wind)"
 ```
 
@@ -96,7 +96,7 @@ python -m ipykernel install --user --name mcap-wind --display-name "Python (MCAP
 2. Navigate to:
 
    ```text
-   /scratch.global/YOUR_X500/MCAP/Wind_Analysis_Tool/
+   /scratch.global/YOUR_X500/MCAP/WASP/
    ```
 
 3. Open:
@@ -118,8 +118,7 @@ python -m ipykernel install --user --name mcap-wind --display-name "Python (MCAP
 Outputs should appear here:
 
 ```text
-/scratch.global/YOUR_X500/MCAP/Wind_Analysis_Tool/outputs/WSPD10/
+/scratch.global/YOUR_X500/MCAP/WASP/Outputs/WSPD10/
 ```
 
 If `scratch.global` is temporary storage for your MSI account, copy important final outputs to a more permanent project or home location.
-

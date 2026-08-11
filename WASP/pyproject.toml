@@ -3,10 +3,10 @@
 
 
 [project]
-name = "mcap-wind-extremes"
-version = "0.1.0"
-description = "Notebook-first workflow for Minnesota climate wind extreme percentile analysis."
-readme = "README_wind_extremes.md"
+name = "mcap-wasp"
+version = "0.2.0"
+description = "Wind Analysis and Statistics Package for Minnesota climate wind-extreme and ensemble analysis."
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "numpy",
@@ -25,6 +25,7 @@ test = [
 ]
 
 [project.scripts]
+wasp = "wind_extreme_analysis.workflow:main"
 wind-extremes = "wind_extreme_analysis.workflow:main"
 uv-to-wspd = "wind_extreme_analysis.uv_to_speed:main"
 

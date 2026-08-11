@@ -13,7 +13,7 @@ for season in seasons:
     seasonal = deepcopy(template)
     seasonal["description"] = f"10 m wind speed magnitude, Minnesota masked, {season} only."
     seasonal["historical"]["path"] = (
-        f"Wind_Analysis_Tool/Analysis/historical_1995-2014/seasons/"
+        f"WASP/Analysis/historical_1995-2014/seasons/"
         f"WSPD10_BCC-CSM2-MR_historical_1995-2014_MNmasked_{season}.nc"
     )
 
@@ -24,7 +24,7 @@ for season in seasons:
                 "scenario": scenario,
                 "period": period,
                 "path": (
-                    f"Wind_Analysis_Tool/Analysis/{scenario}_{period}/seasons/"
+                    f"WASP/Analysis/{scenario}_{period}/seasons/"
                     f"WSPD10_BCC-CSM2-MR_{scenario}_{period}_MNmasked_{season}.nc"
                 ),
                 "years": [int(period[:4]), int(period[-4:])]

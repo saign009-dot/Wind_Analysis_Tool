@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+
+# Generated analysis products and cluster-run artifacts
+WASP/Outputs/
+WASP/outputs/
+WASP/logs/
+WASP/manifests/
