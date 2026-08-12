@@ -26,6 +26,7 @@ Keep the same simple layout:
       p99_9_model_changes_final/
       p99_9_ensemble_final/
       p99_9_ensemble_trends/
+      ensemble_csv_summary/
   Analysis/
     BCC-CSM2-MR/
       historical_1995-2014/
@@ -137,6 +138,17 @@ PYTHONPATH=src python -m wind_extreme_analysis.ensemble_manifest \
 The manifest builder validates all required files before writing its 216 task rows. If anything is missing, it prints the expected paths and exits without creating a runnable manifest.
 
 The p98 change stage defaults to `outputs/p98_model_changes/`, but the p98 ensemble and trend stages default to `outputs/p98_model_changes_final/`. After checking the model-level results, either copy or move the accepted files into the `final` directory or submit the later stages with `INPUT_ROOT` set to the reviewed location. The p99.9 workflow writes and reads `outputs/p99_9_model_changes_final/` by default.
+
+## Summarize Completed Ensemble Tables
+
+After the p98 and p99.9 trend jobs finish successfully, activate the same Python environment used for WASP and run:
+
+```bash
+cd /projects/standard/hroop/shared/saign009/WSPD10_wind_program/Wind_Analysis_Tool/WASP
+python summarize_ensemble_csvs.py
+```
+
+The program validates the four generated regional CSV tables and writes two CSV-only summaries below `outputs/ensemble_csv_summary/`: one row per exact percentile/scenario/period/season combination and one row per percentile/scenario/season with all three future periods side by side.
 
 ## Open Jupyter on MSI
 
