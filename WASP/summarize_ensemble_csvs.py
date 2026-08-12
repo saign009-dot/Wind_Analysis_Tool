@@ -329,12 +329,113 @@ def build_period_progression_summary(
     return pd.DataFrame.from_records(records)
 
 
+def build_combination_tallies(combinations: pd.DataFrame) -> pd.DataFrame:
+    """Tally three period-level combinations for each percentile/scenario/season."""
+    records: list[dict[str, object]] = []
+    group_columns = ["percentile", "scenario", "season"]
+    for keys, group in combinations.groupby(group_columns, sort=False):
+        percentile, scenario, season = keys
+        periods = set(group["period"].astype(str))
+        if periods != set(PERIODS):
+            raise ValueError(
+                f"Cannot tally {percentile} {scenario} {season}; "
+                f"expected periods={list(PERIODS)}, found={sorted(periods)}"
+            )
+        combination_count = len(group)
+        model_vote_count = int(group["model_count"].sum())
+        ensemble_directions = group["ensemble_direction"].value_counts()
+        agreement_categories = group["agreement_category"].value_counts()
+        increase_votes = int(group["increase_count"].sum())
+        decrease_votes = int(group["decrease_count"].sum())
+        near_zero_votes = int(group["near_zero_count"].sum())
+        record = {
+            "percentile": percentile,
+            "percentile_probability": float(group["percentile_probability"].iloc[0]),
+            "scenario": scenario,
+            "season": season,
+            "period_combination_count": combination_count,
+            "ensemble_increase_count": int(ensemble_directions.get("increase", 0)),
+            "ensemble_decrease_count": int(ensemble_directions.get("decrease", 0)),
+            "ensemble_near_zero_count": int(ensemble_directions.get("near_zero", 0)),
+            "ensemble_increase_fraction": float(
+                ensemble_directions.get("increase", 0) / combination_count
+            ),
+            "ensemble_decrease_fraction": float(
+                ensemble_directions.get("decrease", 0) / combination_count
+            ),
+            "ensemble_near_zero_fraction": float(
+                ensemble_directions.get("near_zero", 0) / combination_count
+            ),
+            "unanimous_agreement_count": int(agreement_categories.get("unanimous", 0)),
+            "strong_agreement_count": int(agreement_categories.get("strong", 0)),
+            "majority_agreement_count": int(agreement_categories.get("majority", 0)),
+            "split_agreement_count": int(agreement_categories.get("split", 0)),
+            "models_span_zero_count": int(group["models_span_zero"].astype(bool).sum()),
+            "models_span_zero_fraction": float(
+                group["models_span_zero"].astype(bool).mean()
+            ),
+            "model_vote_count": model_vote_count,
+            "model_increase_vote_count": increase_votes,
+            "model_decrease_vote_count": decrease_votes,
+            "model_near_zero_vote_count": near_zero_votes,
+            "model_increase_vote_fraction": increase_votes / model_vote_count,
+            "model_decrease_vote_fraction": decrease_votes / model_vote_count,
+            "model_near_zero_vote_fraction": near_zero_votes / model_vote_count,
+        }
+        records.append(record)
+    return pd.DataFrame.from_records(records)
+
+
+def build_progression_tallies(
+    progression: pd.DataFrame,
+    zero_tolerance: float = 0.0,
+) -> pd.DataFrame:
+    """Tally four seasonal progression patterns for each percentile/scenario."""
+    records: list[dict[str, object]] = []
+    for keys, group in progression.groupby(["percentile", "scenario"], sort=False):
+        percentile, scenario = keys
+        seasons = set(group["season"].astype(str))
+        if seasons != set(SEASONS):
+            raise ValueError(
+                f"Cannot tally {percentile} {scenario}; "
+                f"expected seasons={list(SEASONS)}, found={sorted(seasons)}"
+            )
+        season_count = len(group)
+        patterns = group["period_progression_pattern"].value_counts()
+        late_change = group["late_minus_early_ensemble_mean"].astype(float)
+        late_directions = late_change.map(
+            lambda value: _direction(value, zero_tolerance)
+        ).value_counts()
+        records.append({
+            "percentile": percentile,
+            "percentile_probability": float(group["percentile_probability"].iloc[0]),
+            "scenario": scenario,
+            "season_count": season_count,
+            "monotonic_increase_count": int(patterns.get("monotonic_increase", 0)),
+            "monotonic_decrease_count": int(patterns.get("monotonic_decrease", 0)),
+            "stable_count": int(patterns.get("stable", 0)),
+            "mixed_count": int(patterns.get("mixed", 0)),
+            "monotonic_increase_fraction": float(
+                patterns.get("monotonic_increase", 0) / season_count
+            ),
+            "monotonic_decrease_fraction": float(
+                patterns.get("monotonic_decrease", 0) / season_count
+            ),
+            "stable_fraction": float(patterns.get("stable", 0) / season_count),
+            "mixed_fraction": float(patterns.get("mixed", 0) / season_count),
+            "late_above_early_count": int(late_directions.get("increase", 0)),
+            "late_below_early_count": int(late_directions.get("decrease", 0)),
+            "late_equals_early_count": int(late_directions.get("near_zero", 0)),
+        })
+    return pd.DataFrame.from_records(records)
+
+
 def summarize_outputs(
     outputs_root: str | Path = "outputs",
     output_dir: str | Path | None = None,
     zero_tolerance: float = 0.0,
-) -> tuple[Path, Path]:
-    """Validate the four WASP source CSVs and write two derived CSV summaries."""
+) -> tuple[Path, Path, Path, Path]:
+    """Validate source CSVs and write detailed summaries plus grouped tallies."""
     outputs_root = Path(outputs_root)
     destination = Path(output_dir) if output_dir else outputs_root / "ensemble_csv_summary"
     ensemble_tables: list[pd.DataFrame] = []
@@ -352,12 +453,25 @@ def summarize_outputs(
     progression_summary = build_period_progression_summary(
         combination_summary, zero_tolerance
     )
+    combination_tallies = build_combination_tallies(combination_summary)
+    progression_tallies = build_progression_tallies(
+        progression_summary, zero_tolerance
+    )
     destination.mkdir(parents=True, exist_ok=True)
     combination_path = destination / "wasp_percentile_combination_summary.csv"
     progression_path = destination / "wasp_percentile_period_progression.csv"
+    combination_tally_path = destination / "wasp_percentile_combination_tallies.csv"
+    progression_tally_path = destination / "wasp_percentile_progression_tallies.csv"
     combination_summary.to_csv(combination_path, index=False)
     progression_summary.to_csv(progression_path, index=False)
-    return combination_path, progression_path
+    combination_tallies.to_csv(combination_tally_path, index=False)
+    progression_tallies.to_csv(progression_tally_path, index=False)
+    return (
+        combination_path,
+        progression_path,
+        combination_tally_path,
+        progression_tally_path,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -381,13 +495,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    combination_path, progression_path = summarize_outputs(
+    output_paths = summarize_outputs(
         outputs_root=args.outputs_root,
         output_dir=args.output_dir,
         zero_tolerance=args.zero_tolerance,
     )
-    print(f"WROTE: {combination_path}")
-    print(f"WROTE: {progression_path}")
+    for output_path in output_paths:
+        print(f"WROTE: {output_path}")
     print(
         "NOTE: model direction counts and agreement categories are descriptive; "
         "they are not statistical-significance tests."

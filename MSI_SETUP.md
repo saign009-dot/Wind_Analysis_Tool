@@ -148,7 +148,7 @@ cd /projects/standard/hroop/shared/saign009/WSPD10_wind_program/Wind_Analysis_To
 python summarize_ensemble_csvs.py
 ```
 
-The program validates the four generated regional CSV tables and writes two CSV-only summaries below `outputs/ensemble_csv_summary/`: one row per exact percentile/scenario/period/season combination and one row per percentile/scenario/season with all three future periods side by side.
+The program validates the four generated regional CSV tables and writes four CSV-only products below `outputs/ensemble_csv_summary/`: one row per exact percentile/scenario/period/season combination; one row per percentile/scenario/season with all three future periods side by side; a tally of ensemble directions, agreement levels, zero-spanning combinations, and individual model votes; and a tally of seasonal period-progression patterns. The tally files retain their percentile, scenario, and season groupings rather than pooling unrelated results.
 
 ## Open Jupyter on MSI
 

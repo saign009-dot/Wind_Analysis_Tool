@@ -121,9 +121,13 @@ It validates each ensemble statistic against the six underlying model values, th
 ```text
 outputs/ensemble_csv_summary/wasp_percentile_combination_summary.csv
 outputs/ensemble_csv_summary/wasp_percentile_period_progression.csv
+outputs/ensemble_csv_summary/wasp_percentile_combination_tallies.csv
+outputs/ensemble_csv_summary/wasp_percentile_progression_tallies.csv
 ```
 
-The combination table preserves every percentile/scenario/period/season result and adds model direction counts, the models producing the minimum and maximum changes, and descriptive direction-agreement fields. The progression table places the three future periods side by side for each percentile/scenario/season. Direction agreement and progression labels are descriptive summaries, not statistical-significance tests.
+The combination table preserves every percentile/scenario/period/season result and adds model direction counts, the models producing the minimum and maximum changes, and descriptive direction-agreement fields. The progression table places the three future periods side by side for each percentile/scenario/season.
+
+The combination-tallies table has one row per percentile/scenario/season. It counts the three period-level ensemble directions, agreement categories, combinations in which model results span zero, and all 18 individual model direction votes. The progression-tallies table has one row per percentile/scenario and counts the four seasonal progression patterns. This keeps percentiles, scenarios, and seasons identifiable instead of pooling them into one ambiguous overall count. Direction agreement and progression labels are descriptive summaries, not statistical-significance tests.
 
 ## Tests
 

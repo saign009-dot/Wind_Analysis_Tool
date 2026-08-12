@@ -70,12 +70,21 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             write_percentile_tables(outputs_root, "p98", 1.0)
             write_percentile_tables(outputs_root, "p99_9", 2.0)
 
-            combination_path, progression_path = summarize_outputs(outputs_root)
+            (
+                combination_path,
+                progression_path,
+                combination_tally_path,
+                progression_tally_path,
+            ) = summarize_outputs(outputs_root)
 
             combinations = pd.read_csv(combination_path)
             progression = pd.read_csv(progression_path)
+            combination_tallies = pd.read_csv(combination_tally_path)
+            progression_tallies = pd.read_csv(progression_tally_path)
             self.assertEqual(len(combinations), 72)
             self.assertEqual(len(progression), 24)
+            self.assertEqual(len(combination_tallies), 24)
+            self.assertEqual(len(progression_tallies), 6)
 
             early_p98 = combinations[
                 (combinations["percentile"] == "p98")
@@ -102,6 +111,28 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
                 p98_progression["period_progression_pattern"],
                 "monotonic_increase",
             )
+
+            p98_combination_tally = combination_tallies[
+                (combination_tallies["percentile"] == "p98")
+                & (combination_tallies["scenario"] == "ssp245")
+                & (combination_tallies["season"] == "DJF")
+            ].iloc[0]
+            self.assertEqual(int(p98_combination_tally["period_combination_count"]), 3)
+            self.assertEqual(int(p98_combination_tally["ensemble_increase_count"]), 3)
+            self.assertEqual(int(p98_combination_tally["strong_agreement_count"]), 1)
+            self.assertEqual(int(p98_combination_tally["unanimous_agreement_count"]), 2)
+            self.assertEqual(int(p98_combination_tally["models_span_zero_count"]), 1)
+            self.assertEqual(int(p98_combination_tally["model_vote_count"]), 18)
+            self.assertEqual(int(p98_combination_tally["model_increase_vote_count"]), 17)
+            self.assertEqual(int(p98_combination_tally["model_decrease_vote_count"]), 1)
+
+            p98_progression_tally = progression_tallies[
+                (progression_tallies["percentile"] == "p98")
+                & (progression_tallies["scenario"] == "ssp245")
+            ].iloc[0]
+            self.assertEqual(int(p98_progression_tally["season_count"]), 4)
+            self.assertEqual(int(p98_progression_tally["monotonic_increase_count"]), 4)
+            self.assertEqual(int(p98_progression_tally["late_above_early_count"]), 4)
 
     def test_mismatched_ensemble_table_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
