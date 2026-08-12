@@ -436,27 +436,53 @@ def build_summary_tally(
             raise ValueError(
                 f"Expected 24 model-season values for {percentile} {scenario} {period}"
             )
-        #classify each of the four seasonal ensemble means
-        ensemble_directions = ensemble_group["ensemble_mean"].astype(float).map(
-            lambda value: _direction(value, zero_tolerance)
-        ).value_counts()
-        #classify all 24 individual model-season regional changes
-        model_directions = model_group["regional_change"].astype(float).map(
-            lambda value: _direction(value, zero_tolerance)
-        ).value_counts()
-        #store explicit denominators plus direction counts instead of a pooled percentage
+        #store season names under their direction in the standard DJF/MAM/JJA/SON order
+        ensemble_names = {direction: [] for direction in ("increase", "decrease", "near_zero")}
+        for season in SEASONS:
+            #validation above guarantees exactly one ensemble row for this season
+            value = float(
+                ensemble_group.loc[
+                    ensemble_group["season"] == season, "ensemble_mean"
+                ].iloc[0]
+            )
+            #append the season name to the direction calculated from its ensemble mean
+            ensemble_names[_direction(value, zero_tolerance)].append(season)
+        #store model/season labels under their direction in standard model and season order
+        model_season_names = {
+            direction: [] for direction in ("increase", "decrease", "near_zero")
+        }
+        for model in MODELS:
+            for season in SEASONS:
+                #validation above guarantees one regional value for every model/season pair
+                value = float(
+                    model_group.loc[
+                        (model_group["model"] == model)
+                        & (model_group["season"] == season),
+                        "regional_change",
+                    ].iloc[0]
+                )
+                #model/season makes the identity unambiguous in the text tally
+                label = f"{model}/{season}"
+                model_season_names[_direction(value, zero_tolerance)].append(label)
+        #store explicit denominators, direction counts, and the identities behind each count
         records.append({
             "percentile": percentile,
             "scenario": scenario,
             "period": period,
             "season_count": len(SEASONS),
-            "season_ensemble_increase": int(ensemble_directions.get("increase", 0)),
-            "season_ensemble_decrease": int(ensemble_directions.get("decrease", 0)),
-            "season_ensemble_near_zero": int(ensemble_directions.get("near_zero", 0)),
+            "season_ensemble_increase": len(ensemble_names["increase"]),
+            "season_ensemble_decrease": len(ensemble_names["decrease"]),
+            "season_ensemble_near_zero": len(ensemble_names["near_zero"]),
+            "season_ensemble_increase_names": tuple(ensemble_names["increase"]),
+            "season_ensemble_decrease_names": tuple(ensemble_names["decrease"]),
+            "season_ensemble_near_zero_names": tuple(ensemble_names["near_zero"]),
             "model_season_vote_count": len(MODELS) * len(SEASONS),
-            "model_season_increase": int(model_directions.get("increase", 0)),
-            "model_season_decrease": int(model_directions.get("decrease", 0)),
-            "model_season_near_zero": int(model_directions.get("near_zero", 0)),
+            "model_season_increase": len(model_season_names["increase"]),
+            "model_season_decrease": len(model_season_names["decrease"]),
+            "model_season_near_zero": len(model_season_names["near_zero"]),
+            "model_season_increase_names": tuple(model_season_names["increase"]),
+            "model_season_decrease_names": tuple(model_season_names["decrease"]),
+            "model_season_near_zero_names": tuple(model_season_names["near_zero"]),
         })
     #return 2 percentiles x 3 scenarios x 3 periods = 18 interpretable tally rows
     return pd.DataFrame.from_records(records)
@@ -464,7 +490,7 @@ def build_summary_tally(
 
 #writes the concise tally in the same plain-text spirit as Summary of the summary.txt
 def write_summary_tally(table: pd.DataFrame, output_path: str | Path) -> Path:
-    """Write an 18-line direction tally with explicit denominators."""
+    """Write 18 direction blocks with counts and their season/model identities."""
     #normalize the output path before creating its parent folder
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -472,7 +498,7 @@ def write_summary_tally(table: pd.DataFrame, output_path: str | Path) -> Path:
     lines = [
         "WASP direction tally",
         "",
-        "Each line covers 4 seasons and 24 model-season values (6 models x 4 seasons).",
+        "Each block covers 4 seasons and 24 model-season values (6 models x 4 seasons).",
         "Counts describe the sign of area-weighted wind-speed change, not statistical significance.",
         "Percentiles are kept separate and no overall pooled percentage is calculated.",
         "",
@@ -489,16 +515,27 @@ def write_summary_tally(table: pd.DataFrame, output_path: str | Path) -> Path:
                     & (table["scenario"] == scenario)
                     & (table["period"] == period)
                 ].iloc[0]
-                #show seasonal ensemble counts and model-season counts with denominators
-                lines.append(
-                    f"  {scenario}, {period}: "
-                    f"seasonal ensemble +{int(row['season_ensemble_increase'])}/4, "
-                    f"-{int(row['season_ensemble_decrease'])}/4, "
-                    f"near-zero {int(row['season_ensemble_near_zero'])}/4; "
-                    f"model-season +{int(row['model_season_increase'])}/24, "
-                    f"-{int(row['model_season_decrease'])}/24, "
-                    f"near-zero {int(row['model_season_near_zero'])}/24"
-                )
+                #show a readable name list or the word none when a category is empty
+                def names(column: str) -> str:
+                    values = row[column]
+                    return ", ".join(values) if values else "none"
+
+                #make one short block so every count is directly connected to its identities
+                lines.extend([
+                    f"  {scenario}, {period}",
+                    f"    Ensemble + ({int(row['season_ensemble_increase'])}/4): "
+                    f"{names('season_ensemble_increase_names')}",
+                    f"    Ensemble - ({int(row['season_ensemble_decrease'])}/4): "
+                    f"{names('season_ensemble_decrease_names')}",
+                    f"    Model-season + ({int(row['model_season_increase'])}/24): "
+                    f"{names('model_season_increase_names')}",
+                    f"    Model-season - ({int(row['model_season_decrease'])}/24): "
+                    f"{names('model_season_decrease_names')}",
+                    f"    Near-zero: ensemble {int(row['season_ensemble_near_zero'])}/4 "
+                    f"[{names('season_ensemble_near_zero_names')}]; "
+                    f"model-season {int(row['model_season_near_zero'])}/24 "
+                    f"[{names('model_season_near_zero_names')}]",
+                ])
         #blank line separates the two percentile sections
         lines.append("")
     #write utf-8 text with one final newline for standard text-file formatting

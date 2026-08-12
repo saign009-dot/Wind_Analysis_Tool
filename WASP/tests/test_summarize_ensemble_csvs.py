@@ -176,10 +176,30 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             #the text tally retains percentile and scenario/period identifiers
             self.assertIn("p98", tally_text)
             self.assertIn("p99_9", tally_text)
-            #four repeated early-period seasons give four positive seasonal ensemble means
+            #the tally lists all four positive ensemble seasons by name in standard order
             self.assertIn(
-                "ssp245, 2040-2059: seasonal ensemble +4/4, -0/4, near-zero 0/4; "
-                "model-season +20/24, -4/24, near-zero 0/24",
+                "Ensemble + (4/4): DJF, MAM, JJA, SON",
+                tally_text,
+            )
+            #an empty direction category must say none rather than leaving an unclear blank
+            self.assertIn("Ensemble - (0/4): none", tally_text)
+            #the only negative model is BCC, so all four of its seasonal labels are listed
+            self.assertIn(
+                "Model-season - (4/24): BCC-CSM2-MR/DJF, BCC-CSM2-MR/MAM, "
+                "BCC-CSM2-MR/JJA, BCC-CSM2-MR/SON",
+                tally_text,
+            )
+            #the positive list begins with CESM2 and ends with MIROC in production order
+            positive_model_seasons = ", ".join(
+                f"{model}/{season}" for model in MODELS[1:] for season in SEASONS
+            )
+            self.assertIn(
+                f"Model-season + (20/24): {positive_model_seasons}",
+                tally_text,
+            )
+            #near-zero categories also show both the count and the empty identity list
+            self.assertIn(
+                "Near-zero: ensemble 0/4 [none]; model-season 0/24 [none]",
                 tally_text,
             )
             #the header explicitly prevents interpreting direction counts as significance

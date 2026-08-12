@@ -128,7 +128,7 @@ The agreement CSV keeps every percentile/scenario/period/season separate and con
 
 The progression CSV keeps every percentile/scenario/season separate and contains only five result metrics: early-, middle-, and late-period ensemble means, late minus early mean, and the progression pattern.
 
-The text tally follows the concise style of the earlier `Summary of the summary.txt`, but it does not pool percentiles or report a misleading overall percentage. Each of its 18 lines covers one percentile/scenario/period and explicitly reports four seasonal ensemble directions plus 24 model-season direction votes. These direction counts are descriptive and are not statistical-significance results.
+The text tally follows the concise style of the earlier `Summary of the summary.txt`, but it does not pool percentiles or report a misleading overall percentage. Each of its 18 blocks covers one percentile/scenario/period and reports four seasonal ensemble directions plus 24 model-season direction votes. Every count is followed by the exact seasons or `model/season` pairs behind it, in the standard WASP model and season order. These direction counts are descriptive and are not statistical-significance results.
 
 Use `--decimal-places` to override the three-decimal display default if a different precision is required. Older four-table summary files left by a previous program version are no longer created and can be ignored.
 
