@@ -3,6 +3,7 @@
 #overall flow is find the four trend csv files -> validate them -> rebuild the
 #ensemble statistics from the model rows -> add direction and agreement fields
 #-> put the three periods beside each other -> create a concise direction tally
+#-> draw one compact heatmap of seasonal model-direction agreement
 
 #allows modern type hints to work consistently with the supported python versions
 from __future__ import annotations
@@ -16,6 +17,14 @@ from pathlib import Path
 import numpy as np
 #used to read, group, merge, check, and write all of the csv tables
 import pandas as pd
+#selects a noninteractive plotting backend that works inside headless Slurm jobs
+import matplotlib
+
+#the backend must be selected before pyplot is imported
+matplotlib.use("Agg")
+
+#creates and saves the one summary heatmap without opening a desktop window
+import matplotlib.pyplot as plt
 
 
 #these columns identify one scenario/period/season result within one percentile table
@@ -544,14 +553,149 @@ def write_summary_tally(table: pd.DataFrame, output_path: str | Path) -> Path:
     return output_path
 
 
-#runs the complete validation, compact summaries, and text tally workflow
+#draws one heatmap that makes the seasonal model-direction counts easy to compare
+def write_direction_heatmap(
+    agreement_summary: pd.DataFrame,
+    output_path: str | Path,
+) -> Path:
+    """Plot p98 and p99.9 model-direction agreement by scenario, period, and season."""
+    #normalize the output path and create its parent when this function is used alone
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    #these fields supply every identifier and direction count used in the heatmap
+    required = {
+        "percentile", "scenario", "period", "season",
+        "models_increase", "models_decrease", "models_near_zero",
+    }
+    #stop with a direct message if a caller passes the wrong summary table
+    missing = sorted(required.difference(agreement_summary.columns))
+    if missing:
+        raise ValueError(
+            "Agreement summary is missing heatmap columns: " + ", ".join(missing)
+        )
+
+    #the nine rows keep scenarios grouped while periods run early to late within each one
+    row_order = pd.MultiIndex.from_product(
+        [SCENARIOS, PERIODS], names=["scenario", "period"]
+    )
+    #show the full scenario name once for every period so no row depends on visual grouping
+    row_labels = [f"{scenario}  {period}" for scenario, period in row_order]
+    #use one vertically stacked panel per percentile so the same seasons stay aligned
+    figure, axes = plt.subplots(2, 1, figsize=(9.5, 10.5))
+    #reserve fixed space for the title, shared color bar, and explanatory label key
+    figure.subplots_adjust(left=0.19, right=0.97, top=0.91, bottom=0.14, hspace=0.28)
+    #the shared image handle is saved so both panels can use one common color scale
+    image = None
+    #loop in the defined p98 then p99.9 order instead of relying on table row order
+    for axis, percentile in zip(axes, PERCENTILE_INPUTS):
+        #select only the 36 scenario/period/season combinations for this percentile
+        panel = agreement_summary[agreement_summary["percentile"] == percentile]
+        #every panel must contain one row for 3 scenarios x 3 periods x 4 seasons
+        if len(panel) != len(row_order) * len(SEASONS):
+            raise ValueError(
+                f"Expected 36 agreement rows for {percentile}; found {len(panel)}"
+            )
+        #reshape each model-direction count into the same nine-row by four-season grid
+        count_grids = {}
+        for column in ("models_increase", "models_decrease", "models_near_zero"):
+            #pivot makes scenario and period the rows and season the columns
+            grid = panel.pivot(
+                index=["scenario", "period"], columns="season", values=column
+            )
+            #reindex applies the standard scientific order instead of alphabetic order
+            count_grids[column] = grid.reindex(index=row_order, columns=SEASONS)
+        #missing cells would otherwise be silently displayed as a blank heatmap square
+        if any(grid.isna().any().any() for grid in count_grids.values()):
+            raise ValueError(f"Agreement heatmap has missing cells for {percentile}")
+        #positive balance means more models increase and negative means more decrease
+        balance = (
+            count_grids["models_increase"] - count_grids["models_decrease"]
+        ).to_numpy(dtype=float)
+        #keep both panels on the exact possible six-model range for honest comparison
+        image = axis.imshow(
+            balance,
+            cmap="RdBu_r",
+            vmin=-len(MODELS),
+            vmax=len(MODELS),
+            aspect="auto",
+        )
+        #place one exact + / - / near-zero model count label inside every season cell
+        for row_number in range(len(row_order)):
+            for season_number in range(len(SEASONS)):
+                #read the three integer counts from their matching grid location
+                increase = int(count_grids["models_increase"].iloc[row_number, season_number])
+                decrease = int(count_grids["models_decrease"].iloc[row_number, season_number])
+                near_zero = int(count_grids["models_near_zero"].iloc[row_number, season_number])
+                #white text stays readable on strongly colored cells at either extreme
+                text_color = "white" if abs(balance[row_number, season_number]) >= 4 else "black"
+                #the label order matches the + / - / 0 key printed below the panels
+                axis.text(
+                    season_number,
+                    row_number,
+                    f"+{increase}  -{decrease}  0:{near_zero}",
+                    ha="center",
+                    va="center",
+                    color=text_color,
+                    fontsize=8,
+                    fontweight="bold",
+                )
+        #put the four standard seasons directly above each panel's columns
+        axis.set_xticks(range(len(SEASONS)), labels=SEASONS)
+        axis.tick_params(axis="x", top=True, labeltop=True, bottom=False, labelbottom=False)
+        #put the exact scenario and future period beside every heatmap row
+        axis.set_yticks(range(len(row_order)), labels=row_labels)
+        #use publication-friendly percentile wording instead of the filename-safe label
+        panel_title = "98th percentile" if percentile == "p98" else "99.9th percentile"
+        axis.set_title(panel_title, fontsize=11, fontweight="bold", pad=28)
+        #thin white boundaries keep neighboring season cells visually separate
+        axis.set_xticks(np.arange(-0.5, len(SEASONS), 1), minor=True)
+        axis.set_yticks(np.arange(-0.5, len(row_order), 1), minor=True)
+        axis.grid(which="minor", color="white", linewidth=1.5)
+        axis.tick_params(which="minor", bottom=False, left=False)
+
+    #the loop always creates two panels, but this check keeps static type use explicit
+    if image is None:
+        raise ValueError("No percentile panels were available for the agreement heatmap")
+    #one title explains the chart without repeating it above both percentile panels
+    figure.suptitle(
+        "WASP model direction agreement by season",
+        fontsize=14,
+        fontweight="bold",
+    )
+    #a single shared color bar makes the balance encoding identical in both panels
+    color_axis = figure.add_axes([0.24, 0.075, 0.52, 0.018])
+    color_bar = figure.colorbar(image, cax=color_axis, orientation="horizontal")
+    color_bar.set_ticks(range(-len(MODELS), len(MODELS) + 1, 2))
+    color_bar.set_label(
+        "Model direction balance (models increasing minus models decreasing; n=6)",
+        fontsize=9,
+    )
+    #the exact-count key keeps the picture interpretable without relying on color alone
+    figure.text(
+        0.5,
+        0.025,
+        "Cell labels: + increasing models   - decreasing models   0: near-zero models. "
+        "Directions are descriptive, not statistical significance.",
+        ha="center",
+        va="center",
+        fontsize=8.5,
+    )
+    #save a crisp portable image that can be viewed directly from the MSI file browser
+    figure.savefig(output_path, dpi=200, bbox_inches="tight", facecolor="white")
+    #close the figure so repeated runs do not retain plot memory on a compute node
+    plt.close(figure)
+    #return the image path so the command line prints it with the other outputs
+    return output_path
+
+
+#runs the complete validation, compact summaries, text tally, and heatmap workflow
 def summarize_outputs(
     outputs_root: str | Path = "outputs",
     output_dir: str | Path | None = None,
     zero_tolerance: float = 0.0,
     decimal_places: int = 3,
-) -> tuple[Path, Path, Path]:
-    """Validate source CSVs and write two compact CSVs plus one text tally."""
+) -> tuple[Path, Path, Path, Path]:
+    """Validate source CSVs and write two compact CSVs, a tally, and a heatmap."""
     #convert the source output folder into a Path for consistent path joining
     outputs_root = Path(outputs_root)
     #use a requested destination or default to a new folder under WASP outputs
@@ -587,10 +731,11 @@ def summarize_outputs(
     summary_tally = build_summary_tally(ensemble_summary, model_values, zero_tolerance)
     #create the destination only after all validation and calculations succeed
     destination.mkdir(parents=True, exist_ok=True)
-    #give the two compact csvs and plain-text tally direct descriptive names
+    #give the two compact csvs, plain-text tally, and heatmap direct descriptive names
     agreement_path = destination / "wasp_agreement_summary.csv"
     progression_path = destination / "wasp_progression_summary.csv"
     tally_path = destination / "wasp_summary_tally.txt"
+    heatmap_path = destination / "wasp_model_direction_heatmap.png"
     #fixed float formatting keeps every displayed wind value at the same compact precision
     float_format = f"%.{decimal_places}f"
     #write compact plain csv files without pandas row numbers
@@ -598,8 +743,10 @@ def summarize_outputs(
     progression_summary.to_csv(progression_path, index=False, float_format=float_format)
     #write the human-readable tally after its counts are calculated
     write_summary_tally(summary_tally, tally_path)
+    #draw one compact comparison from the same validated agreement counts written above
+    write_direction_heatmap(agreement_summary, heatmap_path)
     #return every created path so the command line can print them for the user
-    return agreement_path, progression_path, tally_path
+    return agreement_path, progression_path, tally_path, heatmap_path
 
 
 #defines the terminal options for running the program on MSI or another computer
@@ -636,7 +783,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     #parse either the real command line or an argument list supplied by a caller
     args = build_parser().parse_args(argv)
-    #run every validation and create the two compact csvs plus the text tally
+    #run every validation and create two compact csvs, the text tally, and one heatmap
     output_paths = summarize_outputs(
         outputs_root=args.outputs_root,
         output_dir=args.output_dir,

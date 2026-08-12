@@ -55,7 +55,7 @@ The `WASP` branch also includes the ensemble-analysis programs:
 - `percentile_change_worker.py` calculates model-level gridded percentile changes.
 - `percentile_ensemble_worker.py` calculates the six-model ensemble mean, inter-model sample standard deviation, and model count.
 - `percentile_ensemble_trends.py` creates regional ensemble summaries and trend plots.
-- `summarize_ensemble_csvs.py` replaces the old pooled `count_csv_trues.py` utility on this branch. It validates the completed p98 and p99.9 regional tables and creates two compact five-metric CSVs plus a direction tally.
+- `summarize_ensemble_csvs.py` replaces the old pooled `count_csv_trues.py` utility on this branch. It validates the completed p98 and p99.9 regional tables and creates two compact five-metric CSVs, a direction tally, and one model-agreement heatmap.
 - The `slurm_p98_*.sh` and `slurm_p99_9_*.sh` launchers run the model-change, ensemble, and trend stages for the 98th and 99.9th percentiles.
 
 The Slurm launchers write generated products below `WASP/outputs/` by default.
@@ -122,6 +122,7 @@ It validates each ensemble statistic against the six underlying model values, ro
 outputs/ensemble_csv_summary/wasp_agreement_summary.csv
 outputs/ensemble_csv_summary/wasp_progression_summary.csv
 outputs/ensemble_csv_summary/wasp_summary_tally.txt
+outputs/ensemble_csv_summary/wasp_model_direction_heatmap.png
 ```
 
 The agreement CSV keeps every percentile/scenario/period/season separate and contains only five result metrics: ensemble mean, inter-model sample SD, number of models increasing, number decreasing, and number near zero. The three model counts always total six.
@@ -129,6 +130,8 @@ The agreement CSV keeps every percentile/scenario/period/season separate and con
 The progression CSV keeps every percentile/scenario/season separate and contains only five result metrics: early-, middle-, and late-period ensemble means, late minus early mean, and the progression pattern.
 
 The text tally follows the concise style of the earlier `Summary of the summary.txt`, but it does not pool percentiles or report a misleading overall percentage. Each of its 18 blocks covers one percentile/scenario/period and reports four seasonal ensemble directions plus 24 model-season direction votes. Every count is followed by the exact seasons or `model/season` pairs behind it, in the standard WASP model and season order. These direction counts are descriptive and are not statistical-significance results.
+
+The single heatmap keeps p98 and p99.9 in separate panels, puts scenarios and periods on the rows, and puts seasons on the columns. Color shows the model-direction balance (`models increasing - models decreasing`) on the fixed possible range from -6 to +6. Every cell also prints the exact increasing, decreasing, and near-zero model counts, so the plot does not rely on color alone. Like the tally, it describes model agreement and is not a statistical-significance result.
 
 Use `--decimal-places` to override the three-decimal display default if a different precision is required. Older four-table summary files left by a previous program version are no longer created and can be ignored.
 

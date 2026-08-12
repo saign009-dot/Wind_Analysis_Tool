@@ -91,7 +91,7 @@ def write_percentile_tables(outputs_root: Path, label: str, multiplier: float) -
 
 #groups all calculation tests for summarize_ensemble_csvs.py
 class EnsembleCsvSummaryTests(unittest.TestCase):
-    #checks both compact csv files and the concise text tally from valid source tables
+    #checks both compact csv files, the concise text tally, and the one summary heatmap
     def test_end_to_end_summary_writes_expected_values(self):
         #keep fake production files outside the repository and remove them afterward
         with tempfile.TemporaryDirectory() as temporary:
@@ -103,12 +103,21 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             write_percentile_tables(outputs_root, "p99_9", 2.0)
 
             #run the same complete workflow that the user runs on MSI
-            agreement_path, progression_path, tally_path = summarize_outputs(outputs_root)
+            agreement_path, progression_path, tally_path, heatmap_path = summarize_outputs(
+                outputs_root
+            )
 
-            #read the two compact csvs and the plain-text tally
+            #read the two compact csvs and tally while keeping the image path for checks
             agreement = pd.read_csv(agreement_path)
             progression = pd.read_csv(progression_path)
             tally_text = tally_path.read_text(encoding="utf-8")
+            #the fourth product must be a real nonempty png rather than a mislabeled file
+            self.assertEqual(heatmap_path.suffix, ".png")
+            self.assertGreater(heatmap_path.stat().st_size, 1000)
+            self.assertEqual(
+                heatmap_path.read_bytes()[:8],
+                b"\x89PNG\r\n\x1a\n",
+            )
             #2 percentiles x 3 scenarios x 3 periods x 4 seasons = 72 rows
             self.assertEqual(len(agreement), 72)
             #2 percentiles x 3 scenarios x 4 seasons = 24 progression rows
