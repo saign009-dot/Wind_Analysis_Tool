@@ -2,7 +2,7 @@
 
 #overall flow is find the four trend csv files -> validate them -> rebuild the
 #ensemble statistics from the model rows -> add direction and agreement fields
-#-> put the three periods beside each other -> create grouped tally csv files
+#-> put the three periods beside each other -> create a concise direction tally
 
 #allows modern type hints to work consistently with the supported python versions
 from __future__ import annotations
@@ -255,33 +255,31 @@ def _direction(value: float, zero_tolerance: float) -> str:
     return "near_zero"
 
 
-#turns the largest model-direction fraction into an easy-to-tally agreement label
-def _agreement_category(fraction: float) -> str:
-    #all six models point in the same direction
-    if np.isclose(fraction, 1.0):
-        return "unanimous"
-    #five of six models point in the same direction because 5/6 is about 0.833
-    if fraction >= 0.8:
-        return "strong"
-    #four of six models point in the same direction
-    if fraction > 0.5:
-        return "majority"
-    #no direction has more than half of the six models
-    return "split"
+#checks that the requested number of decimal places is sensible for csv output
+def _validate_decimal_places(decimal_places: int) -> None:
+    #bool is technically an integer in python but is not a meaningful rounding choice
+    if isinstance(decimal_places, bool) or not isinstance(decimal_places, int):
+        raise ValueError("decimal_places must be an integer")
+    #zero is allowed for whole numbers and six still preserves far more than needed here
+    if not 0 <= decimal_places <= 6:
+        raise ValueError("decimal_places must be between 0 and 6")
 
 
-#creates the detailed 72-row table with one row for every exact result combination
-def build_combination_summary(
+#creates the compact 72-row agreement table with exactly five result metrics
+def build_agreement_summary(
     ensemble_summary: pd.DataFrame,
     model_values: pd.DataFrame,
     zero_tolerance: float = 0.0,
+    decimal_places: int = 3,
 ) -> pd.DataFrame:
-    """Add model direction and model-extreme details to every exact combination."""
+    """Create five compact magnitude and model-agreement metrics per combination."""
     #negative tolerance would make the increase/decrease boundaries overlap
     if zero_tolerance < 0:
         raise ValueError("zero_tolerance must be zero or greater")
+    #validate rounding once before applying it to any output values
+    _validate_decimal_places(decimal_places)
 
-    #each dictionary appended here will become one output csv row
+    #each dictionary appended here holds the three exact model-direction counts
     records: list[dict[str, object]] = []
     #split the model table into six-row groups identified by percentile/scenario/period/season
     for keys, group in model_values.groupby(COMBINATION_COLUMNS, sort=False):
@@ -297,82 +295,45 @@ def build_combination_summary(
         increase_count = int(counts.get("increase", 0))
         decrease_count = int(counts.get("decrease", 0))
         near_zero_count = int(counts.get("near_zero", 0))
-        #this should be six after the earlier validation and is kept explicit for fractions
-        model_count = len(group)
-        #store the three counts under their names so the largest one can be found
-        count_map = {
-            "increase": increase_count,
-            "decrease": decrease_count,
-            "near_zero": near_zero_count,
-        }
-        #the largest count represents the direction with the most model support
-        largest_count = max(count_map.values())
-        #there can be multiple leaders when the models are evenly split
-        leaders = [name for name, count in count_map.items() if count == largest_count]
-        #only name a dominant direction when exactly one direction leads
-        dominant_direction = leaders[0] if len(leaders) == 1 else "split"
-        #example: five models pointing the same way gives 5/6 = 0.833 agreement
-        agreement_fraction = largest_count / model_count
-        #find the smallest and largest model-level regional changes in this group
-        minimum = float(values.min())
-        maximum = float(values.max())
-        #np.isclose allows tied extreme models despite tiny floating-point differences
-        minimum_models = sorted(group.loc[np.isclose(values, minimum), "model"].astype(str))
-        maximum_models = sorted(group.loc[np.isclose(values, maximum), "model"].astype(str))
-        #save identities, counts, agreement, and model-name lists as one output row
+        #the three counts must still add to six even when a near-zero tolerance is used
+        if increase_count + decrease_count + near_zero_count != len(MODELS):
+            raise ValueError(
+                f"Direction counts do not add to {len(MODELS)} for {keys}"
+            )
+        #save only the identifiers and exact integer counts needed for the compact output
         records.append({
             "percentile": percentile,
             "scenario": scenario,
             "period": period,
             "season": season,
-            "minimum_model": "; ".join(minimum_models),
-            "maximum_model": "; ".join(maximum_models),
-            "increase_count": increase_count,
-            "decrease_count": decrease_count,
-            "near_zero_count": near_zero_count,
-            "dominant_model_direction": dominant_direction,
-            "direction_agreement_fraction": agreement_fraction,
-            #agreement category translates 6/6, 5/6, 4/6, and split outcomes
-            "agreement_category": _agreement_category(agreement_fraction),
-            #true means at least one model increases and at least one decreases
-            "models_span_zero": increase_count > 0 and decrease_count > 0,
-            #semicolon-separated names keep multiple models readable in one csv cell
-            "increase_models": "; ".join(
-                sorted(group.loc[directions == "increase", "model"].astype(str))
-            ),
-            "decrease_models": "; ".join(
-                sorted(group.loc[directions == "decrease", "model"].astype(str))
-            ),
-            "near_zero_models": "; ".join(
-                sorted(group.loc[directions == "near_zero", "model"].astype(str))
-            ),
+            "models_increase": increase_count,
+            "models_decrease": decrease_count,
+            "models_near_zero": near_zero_count,
         })
 
-    #turn the list of dictionaries into a pandas table
-    agreement = pd.DataFrame.from_records(records)
-    #add the new model-direction fields to the original ensemble statistics
-    result = ensemble_summary.merge(
-        agreement, on=COMBINATION_COLUMNS, how="inner", validate="one_to_one",
+    #turn the count records into a table before joining them to ensemble magnitude fields
+    direction_counts = pd.DataFrame.from_records(records)
+    #select only the two scientifically important ensemble magnitude metrics
+    magnitudes = ensemble_summary[
+        [*COMBINATION_COLUMNS, "ensemble_mean", "inter_model_std"]
+    ].copy()
+    #join the two magnitudes and three model counts into exactly five result metrics
+    result = magnitudes.merge(
+        direction_counts, on=COMBINATION_COLUMNS, how="inner", validate="one_to_one",
     )
-    #an inner merge could drop an unmatched row, so compare lengths to catch that
-    if len(result) != len(ensemble_summary) or len(result) != len(agreement):
+    #an inner merge could hide an unmatched combination, so compare source/output lengths
+    if len(result) != len(magnitudes) or len(result) != len(direction_counts):
         raise ValueError("Not every ensemble combination has matching model-level values")
-    #classify the six-model ensemble mean using the same direction boundaries
-    result["ensemble_direction"] = result["ensemble_mean"].map(
-        lambda value: _direction(float(value), zero_tolerance)
-    )
-
-    #set a deliberate column order so identifying and statistical fields are easy to read
+    #round only the displayed wind values; all validation used the full-precision values
+    result["ensemble_mean_mps"] = result["ensemble_mean"].round(decimal_places)
+    result["inter_model_sd_mps"] = result["inter_model_std"].round(decimal_places)
+    #identifiers are followed by exactly five requested agreement metrics
     ordered = [
-        "percentile", "percentile_probability", "scenario", "period", "season",
-        "units", "ensemble_mean", "inter_model_std", "model_min", "minimum_model",
-        "model_max", "maximum_model", "model_count", "ensemble_direction",
-        "increase_count", "decrease_count", "near_zero_count",
-        "dominant_model_direction", "direction_agreement_fraction",
-        "agreement_category", "models_span_zero", "increase_models",
-        "decrease_models", "near_zero_models",
+        "percentile", "scenario", "period", "season",
+        "ensemble_mean_mps", "inter_model_sd_mps",
+        "models_increase", "models_decrease", "models_near_zero",
     ]
-    #return only the documented columns in the order listed above
+    #return the small rectangular table and discard the wider source-only columns
     return result.loc[:, ordered]
 
 
@@ -393,16 +354,22 @@ def _progression_pattern(values: list[float], tolerance: float) -> str:
     return "mixed"
 
 
-#creates a 24-row table that places all three periods beside each other
-def build_period_progression_summary(
-    combinations: pd.DataFrame,
+#creates the compact 24-row progression table with exactly five result metrics
+def build_progression_summary(
+    ensemble_summary: pd.DataFrame,
     zero_tolerance: float = 0.0,
+    decimal_places: int = 3,
 ) -> pd.DataFrame:
-    """Place all three future periods on one row for each percentile/scenario/season."""
+    """Create four compact magnitude fields and one progression pattern per group."""
+    #negative tolerance would make positive and negative movement overlap
+    if zero_tolerance < 0:
+        raise ValueError("zero_tolerance must be zero or greater")
+    #validate rounding before building any progression output rows
+    _validate_decimal_places(decimal_places)
     #each output row is collected as a dictionary before pandas builds the final table
     records: list[dict[str, object]] = []
     #group across periods while keeping percentile, scenario, and season separate
-    for keys, group in combinations.groupby(
+    for keys, group in ensemble_summary.groupby(
         ["percentile", "scenario", "season"], sort=False
     ):
         #name the three identifiers shared by every row in this group
@@ -418,184 +385,136 @@ def build_period_progression_summary(
             )
         #read means in the fixed early, middle, late order defined by PERIODS
         means = [float(by_period.at[period, "ensemble_mean"]) for period in PERIODS]
-        #read inter-model sample standard deviations in the same order
-        spreads = [float(by_period.at[period, "inter_model_std"]) for period in PERIODS]
-        #read the model-direction agreement fractions in the same order
-        agreements = [
-            float(by_period.at[period, "direction_agreement_fraction"])
-            for period in PERIODS
-        ]
-        #begin the wide output row with fields shared by all three periods
-        record: dict[str, object] = {
+        #calculate late-minus-early from full precision before rounding display values
+        late_minus_early = means[-1] - means[0]
+        #store identifiers followed by the five requested progression metrics
+        records.append({
             "percentile": percentile,
-            "percentile_probability": float(by_period["percentile_probability"].iloc[0]),
             "scenario": scenario,
             "season": season,
-            "units": str(by_period["units"].iloc[0]),
-        }
-        #add mean, spread, and agreement columns for each individual period
-        for period, mean, spread, agreement in zip(PERIODS, means, spreads, agreements):
-            #replace the dash so the period can be safely used inside a column name
-            suffix = period.replace("-", "_")
-            record[f"ensemble_mean_{suffix}"] = mean
-            record[f"inter_model_std_{suffix}"] = spread
-            record[f"direction_agreement_fraction_{suffix}"] = agreement
-        #positive means the late-century ensemble mean is above the early-century mean
-        record["late_minus_early_ensemble_mean"] = means[-1] - means[0]
-        #classify the two steps between the three future periods
-        record["period_progression_pattern"] = _progression_pattern(
-            means, zero_tolerance
-        )
-        #record which future period has the lowest and highest ensemble mean
-        record["minimum_mean_period"] = PERIODS[int(np.argmin(means))]
-        record["maximum_mean_period"] = PERIODS[int(np.argmax(means))]
-        #save the completed wide row
-        records.append(record)
+            "early_mean_mps": round(means[0], decimal_places),
+            "middle_mean_mps": round(means[1], decimal_places),
+            "late_mean_mps": round(means[2], decimal_places),
+            "late_minus_early_mps": round(late_minus_early, decimal_places),
+            "progression_pattern": _progression_pattern(means, zero_tolerance),
+        })
     #convert all 24 percentile/scenario/season records into the progression table
     return pd.DataFrame.from_records(records)
 
 
-#tallies the three period-level rows without mixing percentile/scenario/season groups
-def build_combination_tallies(combinations: pd.DataFrame) -> pd.DataFrame:
-    """Tally three period-level combinations for each percentile/scenario/season."""
-    #each dictionary becomes one of 24 grouped tally rows
-    records: list[dict[str, object]] = []
-    #period is intentionally left out because the three periods are being tallied
-    group_columns = ["percentile", "scenario", "season"]
-    #make one group containing three period rows for every percentile/scenario/season
-    for keys, group in combinations.groupby(group_columns, sort=False):
-        #unpack the identifiers that remain visible in the tally output
-        percentile, scenario, season = keys
-        #collect the period labels actually found in this group
-        periods = set(group["period"].astype(str))
-        #do not produce a tally if a period is missing or unexpected
-        if periods != set(PERIODS):
-            raise ValueError(
-                f"Cannot tally {percentile} {scenario} {season}; "
-                f"expected periods={list(PERIODS)}, found={sorted(periods)}"
-            )
-        #there should be three ensemble combinations, one for each future period
-        combination_count = len(group)
-        #three periods x six models gives 18 individual model direction votes
-        model_vote_count = int(group["model_count"].sum())
-        #count how many period-level ensemble means increase, decrease, or stay near zero
-        ensemble_directions = group["ensemble_direction"].value_counts()
-        #count how many periods have unanimous, strong, majority, or split model agreement
-        agreement_categories = group["agreement_category"].value_counts()
-        #sum the six-model direction counts across all three periods
-        increase_votes = int(group["increase_count"].sum())
-        decrease_votes = int(group["decrease_count"].sum())
-        near_zero_votes = int(group["near_zero_count"].sum())
-        #store raw counts and fractions together so every tally has a denominator
-        record = {
-            "percentile": percentile,
-            "percentile_probability": float(group["percentile_probability"].iloc[0]),
-            "scenario": scenario,
-            "season": season,
-            "period_combination_count": combination_count,
-            #get supplies zero when none of the three periods has that direction
-            "ensemble_increase_count": int(ensemble_directions.get("increase", 0)),
-            "ensemble_decrease_count": int(ensemble_directions.get("decrease", 0)),
-            "ensemble_near_zero_count": int(ensemble_directions.get("near_zero", 0)),
-            "ensemble_increase_fraction": float(
-                ensemble_directions.get("increase", 0) / combination_count
-            ),
-            "ensemble_decrease_fraction": float(
-                ensemble_directions.get("decrease", 0) / combination_count
-            ),
-            "ensemble_near_zero_fraction": float(
-                ensemble_directions.get("near_zero", 0) / combination_count
-            ),
-            #agreement counts describe model consensus, not statistical significance
-            "unanimous_agreement_count": int(agreement_categories.get("unanimous", 0)),
-            "strong_agreement_count": int(agreement_categories.get("strong", 0)),
-            "majority_agreement_count": int(agreement_categories.get("majority", 0)),
-            "split_agreement_count": int(agreement_categories.get("split", 0)),
-            #span zero means at least one model increases and another decreases
-            "models_span_zero_count": int(group["models_span_zero"].astype(bool).sum()),
-            "models_span_zero_fraction": float(
-                group["models_span_zero"].astype(bool).mean()
-            ),
-            #model vote fields preserve the underlying 18 individual model outcomes
-            "model_vote_count": model_vote_count,
-            "model_increase_vote_count": increase_votes,
-            "model_decrease_vote_count": decrease_votes,
-            "model_near_zero_vote_count": near_zero_votes,
-            "model_increase_vote_fraction": increase_votes / model_vote_count,
-            "model_decrease_vote_fraction": decrease_votes / model_vote_count,
-            "model_near_zero_vote_fraction": near_zero_votes / model_vote_count,
-        }
-        #save the completed tally row before moving to the next group
-        records.append(record)
-    #return one row for each 2 percentiles x 3 scenarios x 4 seasons = 24 groups
-    return pd.DataFrame.from_records(records)
-
-
-#tallies the four seasonal progression rows without mixing percentiles or scenarios
-def build_progression_tallies(
-    progression: pd.DataFrame,
+#builds a short summary-of-the-summary without treating model directions as significance
+def build_summary_tally(
+    ensemble_summary: pd.DataFrame,
+    model_values: pd.DataFrame,
     zero_tolerance: float = 0.0,
 ) -> pd.DataFrame:
-    """Tally four seasonal progression patterns for each percentile/scenario."""
-    #each dictionary becomes one of six percentile/scenario tally rows
+    """Tally seasonal ensemble directions and model-season directions."""
+    #negative tolerance would make the direction boundaries overlap
+    if zero_tolerance < 0:
+        raise ValueError("zero_tolerance must be zero or greater")
+    #each dictionary becomes one percentile/scenario/period line in the text output
     records: list[dict[str, object]] = []
-    #season is intentionally left out because all four seasons are being tallied
-    for keys, group in progression.groupby(["percentile", "scenario"], sort=False):
-        #keep percentile and scenario as identifiers in the tally output
-        percentile, scenario = keys
-        #collect the season labels found in this group
-        seasons = set(group["season"].astype(str))
-        #all four seasons must be present for a complete progression tally
-        if seasons != set(SEASONS):
+    #keep percentile separate, fixing the main interpretability problem in the old tally
+    for keys, model_group in model_values.groupby(
+        ["percentile", "scenario", "period"], sort=False
+    ):
+        #unpack the three identifiers that stay visible in the output
+        percentile, scenario, period = keys
+        #select the four matching seasonal ensemble rows from the ensemble table
+        ensemble_group = ensemble_summary[
+            (ensemble_summary["percentile"] == percentile)
+            & (ensemble_summary["scenario"] == scenario)
+            & (ensemble_summary["period"] == period)
+        ]
+        #the group must contain one row for each of DJF, MAM, JJA, and SON
+        if set(ensemble_group["season"].astype(str)) != set(SEASONS):
             raise ValueError(
-                f"Cannot tally {percentile} {scenario}; "
-                f"expected seasons={list(SEASONS)}, found={sorted(seasons)}"
+                f"Expected four seasons for {percentile} {scenario} {period}"
             )
-        #the denominator is four because the group contains DJF, MAM, JJA, and SON
-        season_count = len(group)
-        #count the four progression categories across the seasonal rows
-        patterns = group["period_progression_pattern"].value_counts()
-        #late_change compares the 2080-2099 mean with the 2040-2059 mean
-        late_change = group["late_minus_early_ensemble_mean"].astype(float)
-        #classify each season's late-minus-early value with the requested tolerance
-        late_directions = late_change.map(
+        #six models across four seasons gives 24 model-season direction votes
+        if len(model_group) != len(MODELS) * len(SEASONS):
+            raise ValueError(
+                f"Expected 24 model-season values for {percentile} {scenario} {period}"
+            )
+        #classify each of the four seasonal ensemble means
+        ensemble_directions = ensemble_group["ensemble_mean"].astype(float).map(
             lambda value: _direction(value, zero_tolerance)
         ).value_counts()
-        #store progression counts, fractions, and late-versus-early counts in one row
+        #classify all 24 individual model-season regional changes
+        model_directions = model_group["regional_change"].astype(float).map(
+            lambda value: _direction(value, zero_tolerance)
+        ).value_counts()
+        #store explicit denominators plus direction counts instead of a pooled percentage
         records.append({
             "percentile": percentile,
-            "percentile_probability": float(group["percentile_probability"].iloc[0]),
             "scenario": scenario,
-            "season_count": season_count,
-            #get returns zero when none of the four seasons follows a pattern
-            "monotonic_increase_count": int(patterns.get("monotonic_increase", 0)),
-            "monotonic_decrease_count": int(patterns.get("monotonic_decrease", 0)),
-            "stable_count": int(patterns.get("stable", 0)),
-            "mixed_count": int(patterns.get("mixed", 0)),
-            "monotonic_increase_fraction": float(
-                patterns.get("monotonic_increase", 0) / season_count
-            ),
-            "monotonic_decrease_fraction": float(
-                patterns.get("monotonic_decrease", 0) / season_count
-            ),
-            "stable_fraction": float(patterns.get("stable", 0) / season_count),
-            "mixed_fraction": float(patterns.get("mixed", 0) / season_count),
-            #these fields only compare the late and early endpoints
-            "late_above_early_count": int(late_directions.get("increase", 0)),
-            "late_below_early_count": int(late_directions.get("decrease", 0)),
-            "late_equals_early_count": int(late_directions.get("near_zero", 0)),
+            "period": period,
+            "season_count": len(SEASONS),
+            "season_ensemble_increase": int(ensemble_directions.get("increase", 0)),
+            "season_ensemble_decrease": int(ensemble_directions.get("decrease", 0)),
+            "season_ensemble_near_zero": int(ensemble_directions.get("near_zero", 0)),
+            "model_season_vote_count": len(MODELS) * len(SEASONS),
+            "model_season_increase": int(model_directions.get("increase", 0)),
+            "model_season_decrease": int(model_directions.get("decrease", 0)),
+            "model_season_near_zero": int(model_directions.get("near_zero", 0)),
         })
-    #return one row for each 2 percentiles x 3 scenarios = 6 groups
+    #return 2 percentiles x 3 scenarios x 3 periods = 18 interpretable tally rows
     return pd.DataFrame.from_records(records)
 
 
-#runs the complete validation, summary, progression, and tally workflow
+#writes the concise tally in the same plain-text spirit as Summary of the summary.txt
+def write_summary_tally(table: pd.DataFrame, output_path: str | Path) -> Path:
+    """Write an 18-line direction tally with explicit denominators."""
+    #normalize the output path before creating its parent folder
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    #start with definitions that prevent these counts from being mistaken for significance
+    lines = [
+        "WASP direction tally",
+        "",
+        "Each line covers 4 seasons and 24 model-season values (6 models x 4 seasons).",
+        "Counts describe the sign of area-weighted wind-speed change, not statistical significance.",
+        "Percentiles are kept separate and no overall pooled percentage is calculated.",
+        "",
+    ]
+    #keep p98 and p99.9 in separate labeled text sections
+    for percentile in PERCENTILE_INPUTS:
+        lines.append(percentile)
+        #preserve the standard scenario and period order instead of alphabetic sorting
+        for scenario in SCENARIOS:
+            for period in PERIODS:
+                #there must be exactly one already-validated tally row for this combination
+                row = table[
+                    (table["percentile"] == percentile)
+                    & (table["scenario"] == scenario)
+                    & (table["period"] == period)
+                ].iloc[0]
+                #show seasonal ensemble counts and model-season counts with denominators
+                lines.append(
+                    f"  {scenario}, {period}: "
+                    f"seasonal ensemble +{int(row['season_ensemble_increase'])}/4, "
+                    f"-{int(row['season_ensemble_decrease'])}/4, "
+                    f"near-zero {int(row['season_ensemble_near_zero'])}/4; "
+                    f"model-season +{int(row['model_season_increase'])}/24, "
+                    f"-{int(row['model_season_decrease'])}/24, "
+                    f"near-zero {int(row['model_season_near_zero'])}/24"
+                )
+        #blank line separates the two percentile sections
+        lines.append("")
+    #write utf-8 text with one final newline for standard text-file formatting
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    #return the created path so the command line can print it
+    return output_path
+
+
+#runs the complete validation, compact summaries, and text tally workflow
 def summarize_outputs(
     outputs_root: str | Path = "outputs",
     output_dir: str | Path | None = None,
     zero_tolerance: float = 0.0,
-) -> tuple[Path, Path, Path, Path]:
-    """Validate source CSVs and write detailed summaries plus grouped tallies."""
+    decimal_places: int = 3,
+) -> tuple[Path, Path, Path]:
+    """Validate source CSVs and write two compact CSVs plus one text tally."""
     #convert the source output folder into a Path for consistent path joining
     outputs_root = Path(outputs_root)
     #use a requested destination or default to a new folder under WASP outputs
@@ -611,41 +530,39 @@ def summarize_outputs(
         ensemble_tables.append(ensemble)
         model_tables.append(models)
 
-    #join percentiles and make the 72-row detailed combination table
-    combination_summary = build_combination_summary(
-        pd.concat(ensemble_tables, ignore_index=True),
-        pd.concat(model_tables, ignore_index=True),
+    #join the separately checked p98 and p99.9 tables for shared output functions
+    ensemble_summary = pd.concat(ensemble_tables, ignore_index=True)
+    model_values = pd.concat(model_tables, ignore_index=True)
+    #make the compact 72-row agreement table with five result metrics
+    agreement_summary = build_agreement_summary(
+        ensemble_summary,
+        model_values,
         zero_tolerance,
+        decimal_places,
     )
-    #reshape the detailed table into 24 rows with all three periods side by side
-    progression_summary = build_period_progression_summary(
-        combination_summary, zero_tolerance
+    #make the compact 24-row progression table with five result metrics
+    progression_summary = build_progression_summary(
+        ensemble_summary,
+        zero_tolerance,
+        decimal_places,
     )
-    #tally the three periods within each percentile/scenario/season group
-    combination_tallies = build_combination_tallies(combination_summary)
-    #tally the four seasonal progression patterns within each percentile/scenario group
-    progression_tallies = build_progression_tallies(
-        progression_summary, zero_tolerance
-    )
+    #make the 18-row scenario-period tally that keeps percentiles separate
+    summary_tally = build_summary_tally(ensemble_summary, model_values, zero_tolerance)
     #create the destination only after all validation and calculations succeed
     destination.mkdir(parents=True, exist_ok=True)
-    #give every product a descriptive and non-colliding filename
-    combination_path = destination / "wasp_percentile_combination_summary.csv"
-    progression_path = destination / "wasp_percentile_period_progression.csv"
-    combination_tally_path = destination / "wasp_percentile_combination_tallies.csv"
-    progression_tally_path = destination / "wasp_percentile_progression_tallies.csv"
-    #write plain csv files without pandas row numbers
-    combination_summary.to_csv(combination_path, index=False)
-    progression_summary.to_csv(progression_path, index=False)
-    combination_tallies.to_csv(combination_tally_path, index=False)
-    progression_tallies.to_csv(progression_tally_path, index=False)
+    #give the two compact csvs and plain-text tally direct descriptive names
+    agreement_path = destination / "wasp_agreement_summary.csv"
+    progression_path = destination / "wasp_progression_summary.csv"
+    tally_path = destination / "wasp_summary_tally.txt"
+    #fixed float formatting keeps every displayed wind value at the same compact precision
+    float_format = f"%.{decimal_places}f"
+    #write compact plain csv files without pandas row numbers
+    agreement_summary.to_csv(agreement_path, index=False, float_format=float_format)
+    progression_summary.to_csv(progression_path, index=False, float_format=float_format)
+    #write the human-readable tally after its counts are calculated
+    write_summary_tally(summary_tally, tally_path)
     #return every created path so the command line can print them for the user
-    return (
-        combination_path,
-        progression_path,
-        combination_tally_path,
-        progression_tally_path,
-    )
+    return agreement_path, progression_path, tally_path
 
 
 #defines the terminal options for running the program on MSI or another computer
@@ -669,6 +586,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--zero-tolerance", type=float, default=0.0,
         help="Absolute change at or below this value is classified as near zero.",
     )
+    #three decimals preserves 0.001 m/s while keeping the two csv tables compact
+    parser.add_argument(
+        "--decimal-places", type=int, default=3,
+        help="Decimal places for displayed wind values. Defaults to 3 (0.001 m/s).",
+    )
     #return the configured parser so main can parse the actual command line
     return parser
 
@@ -677,19 +599,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     #parse either the real command line or an argument list supplied by a caller
     args = build_parser().parse_args(argv)
-    #run every validation and create all four output csv files
+    #run every validation and create the two compact csvs plus the text tally
     output_paths = summarize_outputs(
         outputs_root=args.outputs_root,
         output_dir=args.output_dir,
         zero_tolerance=args.zero_tolerance,
+        decimal_places=args.decimal_places,
     )
     #print each final path so the files are easy to locate on MSI
     for output_path in output_paths:
         print(f"WROTE: {output_path}")
-    #warn against treating descriptive model agreement as a significance test
+    #warn against treating descriptive model-direction counts as a significance test
     print(
-        "NOTE: model direction counts and agreement categories are descriptive; "
-        "they are not statistical-significance tests."
+        "NOTE: model direction counts are descriptive; they are not "
+        "statistical-significance tests."
     )
     #zero tells the shell that the program completed successfully
     return 0

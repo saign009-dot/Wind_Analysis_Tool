@@ -148,7 +148,7 @@ cd /projects/standard/hroop/shared/saign009/WSPD10_wind_program/Wind_Analysis_To
 python summarize_ensemble_csvs.py
 ```
 
-The program validates the four generated regional CSV tables and writes four CSV-only products below `outputs/ensemble_csv_summary/`: one row per exact percentile/scenario/period/season combination; one row per percentile/scenario/season with all three future periods side by side; a tally of ensemble directions, agreement levels, zero-spanning combinations, and individual model votes; and a tally of seasonal period-progression patterns. The tally files retain their percentile, scenario, and season groupings rather than pooling unrelated results.
+The program validates the four generated regional CSV tables and writes three compact products below `outputs/ensemble_csv_summary/`: `wasp_agreement_summary.csv`, `wasp_progression_summary.csv`, and `wasp_summary_tally.txt`. Each CSV has only five result metrics, and displayed wind values default to three decimal places (`0.001 m/s`). The text tally keeps percentiles separate, uses explicit denominators of four seasons and 24 model-season values, and does not report a pooled overall percentage. These direction counts describe model agreement and are not statistical-significance results.
 
 ## Open Jupyter on MSI
 

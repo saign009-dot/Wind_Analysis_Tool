@@ -91,7 +91,7 @@ def write_percentile_tables(outputs_root: Path, label: str, multiplier: float) -
 
 #groups all calculation tests for summarize_ensemble_csvs.py
 class EnsembleCsvSummaryTests(unittest.TestCase):
-    #checks all four output csv files from controlled valid source tables
+    #checks both compact csv files and the concise text tally from valid source tables
     def test_end_to_end_summary_writes_expected_values(self):
         #keep fake production files outside the repository and remove them afterward
         with tempfile.TemporaryDirectory() as temporary:
@@ -103,93 +103,87 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             write_percentile_tables(outputs_root, "p99_9", 2.0)
 
             #run the same complete workflow that the user runs on MSI
-            (
-                combination_path,
-                progression_path,
-                combination_tally_path,
-                progression_tally_path,
-            ) = summarize_outputs(outputs_root)
+            agreement_path, progression_path, tally_path = summarize_outputs(outputs_root)
 
-            #read each generated csv so its rows and calculated fields can be checked
-            combinations = pd.read_csv(combination_path)
+            #read the two compact csvs and the plain-text tally
+            agreement = pd.read_csv(agreement_path)
             progression = pd.read_csv(progression_path)
-            combination_tallies = pd.read_csv(combination_tally_path)
-            progression_tallies = pd.read_csv(progression_tally_path)
+            tally_text = tally_path.read_text(encoding="utf-8")
             #2 percentiles x 3 scenarios x 3 periods x 4 seasons = 72 rows
-            self.assertEqual(len(combinations), 72)
+            self.assertEqual(len(agreement), 72)
             #2 percentiles x 3 scenarios x 4 seasons = 24 progression rows
             self.assertEqual(len(progression), 24)
-            #the combination tally also keeps one row per percentile/scenario/season
-            self.assertEqual(len(combination_tallies), 24)
-            #2 percentiles x 3 scenarios = 6 progression tally rows
-            self.assertEqual(len(progression_tallies), 6)
+            #identifiers plus exactly five agreement metrics gives nine columns
+            self.assertEqual(len(agreement.columns), 9)
+            #identifiers plus exactly five progression metrics gives eight columns
+            self.assertEqual(len(progression.columns), 8)
 
-            #select one exact early-period p98 combination for detailed checks
-            early_p98 = combinations[
-                (combinations["percentile"] == "p98")
-                & (combinations["period"] == "2040-2059")
-                & (combinations["scenario"] == "ssp245")
-                & (combinations["season"] == "DJF")
-            ].iloc[0]
-            #the controlled values have five positive models and one negative model
-            self.assertEqual(int(early_p98["increase_count"]), 5)
-            self.assertEqual(int(early_p98["decrease_count"]), 1)
-            #positive and negative values mean the model results span zero
-            self.assertTrue(bool(early_p98["models_span_zero"]))
-            #the first and last controlled model values are the minimum and maximum
-            self.assertEqual(early_p98["minimum_model"], "BCC-CSM2-MR")
-            self.assertEqual(early_p98["maximum_model"], "MIROC-ES2L")
-            #five models agreeing out of six gives the expected agreement fraction
-            self.assertAlmostEqual(
-                float(early_p98["direction_agreement_fraction"]), 5 / 6
+            #check the compact agreement table has only the selected five metrics
+            self.assertEqual(
+                list(agreement.columns),
+                [
+                    "percentile", "scenario", "period", "season",
+                    "ensemble_mean_mps", "inter_model_sd_mps",
+                    "models_increase", "models_decrease", "models_near_zero",
+                ],
             )
-            #five of six is classified as strong rather than unanimous agreement
-            self.assertEqual(early_p98["agreement_category"], "strong")
+            #check the compact progression table has only the selected five metrics
+            self.assertEqual(
+                list(progression.columns),
+                [
+                    "percentile", "scenario", "season",
+                    "early_mean_mps", "middle_mean_mps", "late_mean_mps",
+                    "late_minus_early_mps", "progression_pattern",
+                ],
+            )
 
-            #select one exact wide progression row
+            #select one exact early-period p98 agreement row for detailed checks
+            early_p98 = agreement[
+                (agreement["percentile"] == "p98")
+                & (agreement["period"] == "2040-2059")
+                & (agreement["scenario"] == "ssp245")
+                & (agreement["season"] == "DJF")
+            ].iloc[0]
+            #the full-precision mean is 1/6 and displays as 0.167 at three decimals
+            self.assertAlmostEqual(float(early_p98["ensemble_mean_mps"]), 0.167)
+            #the controlled values have five positive models and one negative model
+            self.assertEqual(int(early_p98["models_increase"]), 5)
+            self.assertEqual(int(early_p98["models_decrease"]), 1)
+            self.assertEqual(int(early_p98["models_near_zero"]), 0)
+
+            #select one exact compact progression row
             p98_progression = progression[
                 (progression["percentile"] == "p98")
                 & (progression["scenario"] == "ssp245")
                 & (progression["season"] == "DJF")
             ].iloc[0]
+            #the three controlled period means and endpoint difference are rounded to 3 places
+            self.assertAlmostEqual(float(p98_progression["early_mean_mps"]), 0.167)
+            self.assertAlmostEqual(float(p98_progression["middle_mean_mps"]), 0.6)
+            self.assertAlmostEqual(float(p98_progression["late_mean_mps"]), 0.9)
+            self.assertAlmostEqual(float(p98_progression["late_minus_early_mps"]), 0.733)
+            #inspect raw csv text to prove trailing zeroes keep the table visually square
+            self.assertIn(
+                "p98,ssp245,DJF,0.167,0.600,0.900,0.733,monotonic_increase",
+                progression_path.read_text(encoding="utf-8"),
+            )
             #the controlled means increase from early to middle to late
             self.assertEqual(
-                p98_progression["period_progression_pattern"],
+                p98_progression["progression_pattern"],
                 "monotonic_increase",
             )
 
-            #select the tally of all three periods for the same percentile/scenario/season
-            p98_combination_tally = combination_tallies[
-                (combination_tallies["percentile"] == "p98")
-                & (combination_tallies["scenario"] == "ssp245")
-                & (combination_tallies["season"] == "DJF")
-            ].iloc[0]
-            #three period-level combinations must be included in the tally
-            self.assertEqual(int(p98_combination_tally["period_combination_count"]), 3)
-            #all three controlled ensemble means are positive
-            self.assertEqual(int(p98_combination_tally["ensemble_increase_count"]), 3)
-            #early period is 5/6 strong and the other two periods are 6/6 unanimous
-            self.assertEqual(int(p98_combination_tally["strong_agreement_count"]), 1)
-            self.assertEqual(int(p98_combination_tally["unanimous_agreement_count"]), 2)
-            #only the early period contains both increasing and decreasing models
-            self.assertEqual(int(p98_combination_tally["models_span_zero_count"]), 1)
-            #three periods multiplied by six models gives 18 individual votes
-            self.assertEqual(int(p98_combination_tally["model_vote_count"]), 18)
-            #17 of those votes are positive and one is negative
-            self.assertEqual(int(p98_combination_tally["model_increase_vote_count"]), 17)
-            self.assertEqual(int(p98_combination_tally["model_decrease_vote_count"]), 1)
-
-            #select the four-season progression tally for one percentile/scenario
-            p98_progression_tally = progression_tallies[
-                (progression_tallies["percentile"] == "p98")
-                & (progression_tallies["scenario"] == "ssp245")
-            ].iloc[0]
-            #the tally must include all four seasons
-            self.assertEqual(int(p98_progression_tally["season_count"]), 4)
-            #the repeated controlled values make all four seasons increase monotonically
-            self.assertEqual(int(p98_progression_tally["monotonic_increase_count"]), 4)
-            #late-century mean is also above early-century mean in all four seasons
-            self.assertEqual(int(p98_progression_tally["late_above_early_count"]), 4)
+            #the text tally retains percentile and scenario/period identifiers
+            self.assertIn("p98", tally_text)
+            self.assertIn("p99_9", tally_text)
+            #four repeated early-period seasons give four positive seasonal ensemble means
+            self.assertIn(
+                "ssp245, 2040-2059: seasonal ensemble +4/4, -0/4, near-zero 0/4; "
+                "model-season +20/24, -4/24, near-zero 0/24",
+                tally_text,
+            )
+            #the header explicitly prevents interpreting direction counts as significance
+            self.assertIn("not statistical significance", tally_text)
 
     #checks that the program catches an ensemble csv that was changed independently
     def test_mismatched_ensemble_table_is_rejected(self):

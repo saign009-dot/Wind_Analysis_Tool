@@ -17,7 +17,7 @@ WASP does not require MSI or another high-performance computing (HPC) system. Sm
 
 ## WASP Contents
 
-- [`WASP/`](WASP/) contains the analysis package, notebook, configuration, tests, ensemble workers, and Slurm launchers. The retained `count_csv_trues.py` summary utility is preserved for provenance but is not recommended for analysis because its metric has limited scientific value.
+- [`WASP/`](WASP/) contains the analysis package, notebook, configuration, tests, ensemble workers, Slurm launchers, and the replacement `summarize_ensemble_csvs.py` utility. The original `count_csv_trues.py` remains on the historical `main` branch; it was replaced on `WASP` because its pooled metric had limited scientific value.
 - [`WASP/preprocessing/`](WASP/preprocessing/) contains the programs used to create Minnesota masks, apply them to the source NetCDF files, and split the masked files into meteorological seasons.
 - [`WASP/README.md`](WASP/README.md) contains detailed workflow and statistical-method documentation.
 - [`MSI_SETUP.md`](MSI_SETUP.md) documents the MSI Miniforge setup and recommended folder layout.

@@ -55,7 +55,7 @@ The `WASP` branch also includes the ensemble-analysis programs:
 - `percentile_change_worker.py` calculates model-level gridded percentile changes.
 - `percentile_ensemble_worker.py` calculates the six-model ensemble mean, inter-model sample standard deviation, and model count.
 - `percentile_ensemble_trends.py` creates regional ensemble summaries and trend plots.
-- `summarize_ensemble_csvs.py` validates the completed p98 and p99.9 regional tables and creates CSV-only combination and period-progression summaries.
+- `summarize_ensemble_csvs.py` replaces the old pooled `count_csv_trues.py` utility on this branch. It validates the completed p98 and p99.9 regional tables and creates two compact five-metric CSVs plus a direction tally.
 - The `slurm_p98_*.sh` and `slurm_p99_9_*.sh` launchers run the model-change, ensemble, and trend stages for the 98th and 99.9th percentiles.
 
 The Slurm launchers write generated products below `WASP/outputs/` by default.
@@ -116,18 +116,21 @@ outputs/p99_9_ensemble_trends/p99_9_ensemble_trend_summary.csv
 outputs/p99_9_ensemble_trends/p99_9_regional_model_values.csv
 ```
 
-It validates each ensemble statistic against the six underlying model values, then writes:
+It validates each ensemble statistic against the six underlying model values, rounds displayed wind values to three decimal places (`0.001 m/s`), then writes:
 
 ```text
-outputs/ensemble_csv_summary/wasp_percentile_combination_summary.csv
-outputs/ensemble_csv_summary/wasp_percentile_period_progression.csv
-outputs/ensemble_csv_summary/wasp_percentile_combination_tallies.csv
-outputs/ensemble_csv_summary/wasp_percentile_progression_tallies.csv
+outputs/ensemble_csv_summary/wasp_agreement_summary.csv
+outputs/ensemble_csv_summary/wasp_progression_summary.csv
+outputs/ensemble_csv_summary/wasp_summary_tally.txt
 ```
 
-The combination table preserves every percentile/scenario/period/season result and adds model direction counts, the models producing the minimum and maximum changes, and descriptive direction-agreement fields. The progression table places the three future periods side by side for each percentile/scenario/season.
+The agreement CSV keeps every percentile/scenario/period/season separate and contains only five result metrics: ensemble mean, inter-model sample SD, number of models increasing, number decreasing, and number near zero. The three model counts always total six.
 
-The combination-tallies table has one row per percentile/scenario/season. It counts the three period-level ensemble directions, agreement categories, combinations in which model results span zero, and all 18 individual model direction votes. The progression-tallies table has one row per percentile/scenario and counts the four seasonal progression patterns. This keeps percentiles, scenarios, and seasons identifiable instead of pooling them into one ambiguous overall count. Direction agreement and progression labels are descriptive summaries, not statistical-significance tests.
+The progression CSV keeps every percentile/scenario/season separate and contains only five result metrics: early-, middle-, and late-period ensemble means, late minus early mean, and the progression pattern.
+
+The text tally follows the concise style of the earlier `Summary of the summary.txt`, but it does not pool percentiles or report a misleading overall percentage. Each of its 18 lines covers one percentile/scenario/period and explicitly reports four seasonal ensemble directions plus 24 model-season direction votes. These direction counts are descriptive and are not statistical-significance results.
+
+Use `--decimal-places` to override the three-decimal display default if a different precision is required. Older four-table summary files left by a previous program version are no longer created and can be ignored.
 
 ## Tests
 
