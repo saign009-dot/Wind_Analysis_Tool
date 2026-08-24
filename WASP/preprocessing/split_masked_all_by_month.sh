@@ -10,7 +10,9 @@ MODE="${1:-preview}"
 #These defaults follow the current MSI repository layout. Every path can be
 #overridden as an environment variable when the data are staged elsewhere.
 PROJECT_ROOT="${PROJECT_ROOT:-/projects/standard/hroop/shared/saign009/WSPD10_wind_program}"
-TOOL_ROOT="${TOOL_ROOT:-${PROJECT_ROOT}/Wind_Analysis_Tool/WASP}"
+#TOOL_ROOT is the repository root from the original selmo.py draft; the
+#already-masked Analysis directory is beside WASP rather than inside it.
+TOOL_ROOT="${TOOL_ROOT:-${PROJECT_ROOT}/Wind_Analysis_Tool}"
 ANALYSIS_ROOT="${ANALYSIS_ROOT:-${TOOL_ROOT}/Analysis}"
 
 #Use the complete six-model ensemble and the same run definitions as the
@@ -37,8 +39,8 @@ season_for_month() {
   esac
 }
 
-#Find either supported analysis layout. The preferred layout is MODEL/RUN,
-#while the older masking script placed all model files together under RUN.
+#Find any supported analysis layout. The preferred layout is MODEL/RUN, the
+#older masking script used RUN, and BCC may store every run in Analysis/seasons.
 find_run_directory() {
   local model="$1"
   local run="$2"
@@ -48,7 +50,8 @@ find_run_directory() {
 
   for candidate in \
     "${ANALYSIS_ROOT}/${model}/${run}" \
-    "${ANALYSIS_ROOT}/${run}"
+    "${ANALYSIS_ROOT}/${run}" \
+    "${ANALYSIS_ROOT}"
   do
     if [ -f "${candidate}/${full_name}" ] \
       || [ -f "${candidate}/seasons/${djf_name}" ] \
@@ -61,6 +64,7 @@ find_run_directory() {
   echo "ERROR: no masked input layout found for ${model} ${run}" >&2
   echo "CHECKED: ${ANALYSIS_ROOT}/${model}/${run}" >&2
   echo "CHECKED: ${ANALYSIS_ROOT}/${run}" >&2
+  echo "CHECKED: ${ANALYSIS_ROOT}/seasons" >&2
   return 1
 }
 

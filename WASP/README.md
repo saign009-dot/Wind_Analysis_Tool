@@ -39,7 +39,7 @@ bash preprocessing/split_masked_all_by_month.sh
 bash preprocessing/split_masked_all_by_month.sh run
 ```
 
-The monthly splitter supports either a complete `WSPD10_MODEL_RUN_MNmasked.nc` file or the four existing `DJF/MAM/JJA/SON` files. It finds both the preferred `Analysis/MODEL/RUN/` layout and the older shared `Analysis/RUN/` layout. Outputs are written below the matching run directory in `months/` and use sortable `_01.nc` through `_12.nc` suffixes. Each file contains that calendar month across all years in the period; no spatial mask is read or applied. Existing monthly files are preserved unless the run is explicitly submitted with `OVERWRITE=1`.
+The monthly splitter supports either a complete `WSPD10_MODEL_RUN_MNmasked.nc` file or the four existing `DJF/MAM/JJA/SON` files. It finds the preferred `Analysis/MODEL/RUN/` layout, the older shared `Analysis/RUN/` layout, and the BCC layout where files are stored directly in `Analysis/seasons/`. Outputs are always written to a `months/` folder beside the matched `seasons/` folder and use sortable `_01.nc` through `_12.nc` suffixes. For the BCC layout, that means `Analysis/seasons/` is read and `Analysis/months/` is written. Each file contains that calendar month across all years in the period; no spatial mask is read or applied. Existing monthly files are preserved unless the run is explicitly submitted with `OVERWRITE=1`.
 
 ## Recommended Workflow
 
