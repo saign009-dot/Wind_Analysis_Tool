@@ -2,8 +2,9 @@
 
 #overall flow is find the four trend csv files -> validate them -> rebuild the
 #ensemble statistics from the model rows -> add direction and agreement fields
-#-> put the three periods beside each other -> create a concise direction tally
-#-> draw one compact heatmap of seasonal model-direction agreement
+#-> test each heatmap cell against zero and correct the 72 p-values -> put the
+#three periods beside each other -> create a concise direction tally -> draw one
+#compact heatmap of seasonal model-direction agreement and significance
 
 #allows modern type hints to work consistently with the supported python versions
 from __future__ import annotations
@@ -17,6 +18,8 @@ from pathlib import Path
 import numpy as np
 #used to read, group, merge, check, and write all of the csv tables
 import pandas as pd
+#provides the Student t distribution used by the six-model heatmap-cell tests
+from scipy import stats
 #selects a noninteractive plotting backend that works inside headless Slurm jobs
 import matplotlib
 
@@ -272,6 +275,110 @@ def _validate_decimal_places(decimal_places: int) -> None:
     #zero is allowed for whole numbers and six still preserves far more than needed here
     if not 0 <= decimal_places <= 6:
         raise ValueError("decimal_places must be between 0 and 6")
+
+
+#controls the expected proportion of false discoveries across all heatmap cells
+def _benjamini_hochberg(
+    p_values: np.ndarray,
+    alpha: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return Benjamini-Hochberg rejection flags and adjusted p-values."""
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be between 0 and 1")
+    p_values = np.asarray(p_values, dtype=float)
+    if p_values.ndim != 1 or not np.isfinite(p_values).all():
+        raise ValueError("Heatmap significance p-values must be a finite 1D array")
+    if np.any((p_values < 0.0) | (p_values > 1.0)):
+        raise ValueError("Heatmap significance p-values must be between 0 and 1")
+
+    test_count = p_values.size
+    order = np.argsort(p_values)
+    sorted_p = p_values[order]
+    ranks = np.arange(1, test_count + 1, dtype=float)
+    adjusted_sorted = sorted_p * test_count / ranks
+    #the reverse cumulative minimum enforces monotonic adjusted p-values
+    adjusted_sorted = np.minimum.accumulate(adjusted_sorted[::-1])[::-1]
+    adjusted_sorted = np.clip(adjusted_sorted, 0.0, 1.0)
+    adjusted = np.empty(test_count, dtype=float)
+    adjusted[order] = adjusted_sorted
+    return adjusted <= alpha, adjusted
+
+
+#tests whether the six-model ensemble mean in each heatmap cell differs from zero
+def build_heatmap_significance(
+    model_values: pd.DataFrame,
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """Calculate per-cell t tests, confidence intervals, and heatmap-wide FDR."""
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be between 0 and 1")
+
+    records: list[dict[str, object]] = []
+    for keys, group in model_values.groupby(COMBINATION_COLUMNS, sort=False):
+        percentile, scenario, period, season = keys
+        values = group["regional_change"].to_numpy(dtype=float)
+        if len(values) != len(MODELS) or not np.isfinite(values).all():
+            raise ValueError(
+                f"Expected {len(MODELS)} finite model changes for {keys}"
+            )
+
+        model_count = len(values)
+        degrees_of_freedom = model_count - 1
+        ensemble_mean = float(values.mean())
+        sample_sd = float(values.std(ddof=1))
+        if sample_sd == 0.0:
+            #a constant nonzero ensemble has no estimated sampling uncertainty;
+            #an all-zero ensemble exactly matches the null value
+            if ensemble_mean == 0.0:
+                t_statistic = 0.0
+                raw_p_value = 1.0
+            else:
+                t_statistic = float(np.copysign(np.inf, ensemble_mean))
+                raw_p_value = 0.0
+            ci_low = ensemble_mean
+            ci_high = ensemble_mean
+        else:
+            standard_error = sample_sd / np.sqrt(model_count)
+            t_statistic = ensemble_mean / standard_error
+            raw_p_value = float(
+                2.0 * stats.t.sf(abs(t_statistic), degrees_of_freedom)
+            )
+            critical_t = float(
+                stats.t.ppf(1.0 - alpha / 2.0, degrees_of_freedom)
+            )
+            margin = critical_t * standard_error
+            ci_low = ensemble_mean - margin
+            ci_high = ensemble_mean + margin
+
+        records.append({
+            "percentile": percentile,
+            "scenario": scenario,
+            "period": period,
+            "season": season,
+            "model_count": model_count,
+            "ensemble_mean_mps": ensemble_mean,
+            "mean_ci_low_mps": ci_low,
+            "mean_ci_high_mps": ci_high,
+            "t_statistic": t_statistic,
+            "raw_p_value": raw_p_value,
+        })
+
+    result = pd.DataFrame.from_records(records)
+    expected_cells = (
+        len(PERCENTILE_INPUTS) * len(SCENARIOS) * len(PERIODS) * len(SEASONS)
+    )
+    if len(result) != expected_cells:
+        raise ValueError(
+            f"Expected {expected_cells} heatmap significance tests; found {len(result)}"
+        )
+    rejected, adjusted = _benjamini_hochberg(
+        result["raw_p_value"].to_numpy(dtype=float), alpha
+    )
+    result["fdr_adjusted_p_value"] = adjusted
+    result["fdr_significant"] = rejected
+    result["alpha"] = alpha
+    result["fdr_family_size"] = expected_cells
+    return result
 
 
 #creates the compact 72-row agreement table with exactly five result metrics
@@ -553,12 +660,13 @@ def write_summary_tally(table: pd.DataFrame, output_path: str | Path) -> Path:
     return output_path
 
 
-#draws one heatmap that makes the seasonal model-direction counts easy to compare
+#draws one heatmap that compares seasonal direction counts and corrected significance
 def write_direction_heatmap(
     agreement_summary: pd.DataFrame,
+    significance_summary: pd.DataFrame,
     output_path: str | Path,
 ) -> Path:
-    """Plot p98 and p99.9 model-direction agreement by scenario, period, and season."""
+    """Plot model-direction agreement and corrected ensemble significance."""
     #normalize the output path and create its parent when this function is used alone
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -573,6 +681,33 @@ def write_direction_heatmap(
         raise ValueError(
             "Agreement summary is missing heatmap columns: " + ", ".join(missing)
         )
+    significance_required = {
+        *COMBINATION_COLUMNS, "fdr_adjusted_p_value", "fdr_significant", "alpha",
+    }
+    significance_missing = sorted(
+        significance_required.difference(significance_summary.columns)
+    )
+    if significance_missing:
+        raise ValueError(
+            "Significance summary is missing heatmap columns: "
+            + ", ".join(significance_missing)
+        )
+    #join by the four cell identifiers so a significance flag cannot drift to another cell
+    heatmap_summary = agreement_summary.merge(
+        significance_summary[
+            [*COMBINATION_COLUMNS, "fdr_adjusted_p_value", "fdr_significant"]
+        ],
+        on=COMBINATION_COLUMNS,
+        how="inner",
+        validate="one_to_one",
+    )
+    if len(heatmap_summary) != len(agreement_summary):
+        raise ValueError("Not every agreement cell has one matching significance result")
+    #the legend must report the exact threshold used to create every marker
+    alpha_values = significance_summary["alpha"].drop_duplicates().to_numpy(dtype=float)
+    if len(alpha_values) != 1:
+        raise ValueError("Heatmap significance rows must use one common alpha value")
+    significance_alpha = float(alpha_values[0])
 
     #the nine rows keep scenarios grouped while periods run early to late within each one
     row_order = pd.MultiIndex.from_product(
@@ -589,7 +724,7 @@ def write_direction_heatmap(
     #loop in the defined p98 then p99.9 order instead of relying on table row order
     for axis, percentile in zip(axes, PERCENTILE_INPUTS):
         #select only the 36 scenario/period/season combinations for this percentile
-        panel = agreement_summary[agreement_summary["percentile"] == percentile]
+        panel = heatmap_summary[heatmap_summary["percentile"] == percentile]
         #every panel must contain one row for 3 scenarios x 3 periods x 4 seasons
         if len(panel) != len(row_order) * len(SEASONS):
             raise ValueError(
@@ -604,8 +739,14 @@ def write_direction_heatmap(
             )
             #reindex applies the standard scientific order instead of alphabetic order
             count_grids[column] = grid.reindex(index=row_order, columns=SEASONS)
+        significance_grid = panel.pivot(
+            index=["scenario", "period"], columns="season", values="fdr_significant"
+        ).reindex(index=row_order, columns=SEASONS)
         #missing cells would otherwise be silently displayed as a blank heatmap square
-        if any(grid.isna().any().any() for grid in count_grids.values()):
+        if (
+            any(grid.isna().any().any() for grid in count_grids.values())
+            or significance_grid.isna().any().any()
+        ):
             raise ValueError(f"Agreement heatmap has missing cells for {percentile}")
         #positive balance means more models increase and negative means more decrease
         balance = (
@@ -626,13 +767,16 @@ def write_direction_heatmap(
                 increase = int(count_grids["models_increase"].iloc[row_number, season_number])
                 decrease = int(count_grids["models_decrease"].iloc[row_number, season_number])
                 near_zero = int(count_grids["models_near_zero"].iloc[row_number, season_number])
+                significant = bool(significance_grid.iloc[row_number, season_number])
                 #white text stays readable on strongly colored cells at either extreme
                 text_color = "white" if abs(balance[row_number, season_number]) >= 4 else "black"
-                #the label order matches the + / - / 0 key printed below the panels
+                #an asterisk identifies only cells passing heatmap-wide FDR correction
+                marker = "  *" if significant else ""
+                #the label order matches the + / - / 0 and significance keys below
                 axis.text(
                     season_number,
                     row_number,
-                    f"+{increase}  -{decrease}  0:{near_zero}",
+                    f"+{increase}  -{decrease}  0:{near_zero}{marker}",
                     ha="center",
                     va="center",
                     color=text_color,
@@ -658,7 +802,7 @@ def write_direction_heatmap(
         raise ValueError("No percentile panels were available for the agreement heatmap")
     #one title explains the chart without repeating it above both percentile panels
     figure.suptitle(
-        "WASP model direction agreement by season",
+        "WASP model direction agreement and ensemble significance by season",
         fontsize=14,
         fontweight="bold",
     )
@@ -673,12 +817,21 @@ def write_direction_heatmap(
     #the exact-count key keeps the picture interpretable without relying on color alone
     figure.text(
         0.5,
-        0.025,
-        "Cell labels: + increasing models   - decreasing models   0: near-zero models. "
-        "Directions are descriptive, not statistical significance.",
+        0.032,
+        "Cell labels: + increasing models   - decreasing models   0: near-zero models.",
         ha="center",
         va="center",
         fontsize=8.5,
+    )
+    figure.text(
+        0.5,
+        0.012,
+        "* two-sided one-sample t test of the six-model mean, significant after "
+        "Benjamini-Hochberg FDR correction across all 72 cells "
+        f"(q < {significance_alpha:g}).",
+        ha="center",
+        va="center",
+        fontsize=8.2,
     )
     #save a crisp portable image that can be viewed directly from the MSI file browser
     figure.savefig(output_path, dpi=200, bbox_inches="tight", facecolor="white")
@@ -694,8 +847,9 @@ def summarize_outputs(
     output_dir: str | Path | None = None,
     zero_tolerance: float = 0.0,
     decimal_places: int = 3,
-) -> tuple[Path, Path, Path, Path]:
-    """Validate source CSVs and write two compact CSVs, a tally, and a heatmap."""
+    alpha: float = 0.05,
+) -> tuple[Path, Path, Path, Path, Path]:
+    """Validate inputs and write summaries, significance results, and a heatmap."""
     #convert the source output folder into a Path for consistent path joining
     outputs_root = Path(outputs_root)
     #use a requested destination or default to a new folder under WASP outputs
@@ -721,6 +875,8 @@ def summarize_outputs(
         zero_tolerance,
         decimal_places,
     )
+    #test the same six regional model changes represented by each heatmap cell
+    significance_summary = build_heatmap_significance(model_values, alpha=alpha)
     #make the compact 24-row progression table with five result metrics
     progression_summary = build_progression_summary(
         ensemble_summary,
@@ -731,22 +887,31 @@ def summarize_outputs(
     summary_tally = build_summary_tally(ensemble_summary, model_values, zero_tolerance)
     #create the destination only after all validation and calculations succeed
     destination.mkdir(parents=True, exist_ok=True)
-    #give the two compact csvs, plain-text tally, and heatmap direct descriptive names
+    #give the compact summaries, test results, tally, and heatmap descriptive names
     agreement_path = destination / "wasp_agreement_summary.csv"
     progression_path = destination / "wasp_progression_summary.csv"
+    significance_path = destination / "wasp_heatmap_significance.csv"
     tally_path = destination / "wasp_summary_tally.txt"
-    heatmap_path = destination / "wasp_model_direction_heatmap.png"
+    heatmap_path = destination / "wasp_model_direction_significance_heatmap.png"
     #fixed float formatting keeps every displayed wind value at the same compact precision
     float_format = f"%.{decimal_places}f"
     #write compact plain csv files without pandas row numbers
     agreement_summary.to_csv(agreement_path, index=False, float_format=float_format)
     progression_summary.to_csv(progression_path, index=False, float_format=float_format)
+    #retain full inferential precision instead of rounding small p-values to zero
+    significance_summary.to_csv(significance_path, index=False)
     #write the human-readable tally after its counts are calculated
     write_summary_tally(summary_tally, tally_path)
-    #draw one compact comparison from the same validated agreement counts written above
-    write_direction_heatmap(agreement_summary, heatmap_path)
+    #draw counts and corrected significance from the two validated cell-level tables
+    write_direction_heatmap(agreement_summary, significance_summary, heatmap_path)
     #return every created path so the command line can print them for the user
-    return agreement_path, progression_path, tally_path, heatmap_path
+    return (
+        agreement_path,
+        progression_path,
+        significance_path,
+        tally_path,
+        heatmap_path,
+    )
 
 
 #defines the terminal options for running the program on MSI or another computer
@@ -775,6 +940,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--decimal-places", type=int, default=3,
         help="Decimal places for displayed wind values. Defaults to 3 (0.001 m/s).",
     )
+    #alpha controls both the confidence intervals and final FDR decision threshold
+    parser.add_argument(
+        "--alpha", type=float, default=0.05,
+        help="Significance and FDR level for the 72 heatmap-cell tests (default: 0.05).",
+    )
     #return the configured parser so main can parse the actual command line
     return parser
 
@@ -783,20 +953,21 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     #parse either the real command line or an argument list supplied by a caller
     args = build_parser().parse_args(argv)
-    #run every validation and create two compact csvs, the text tally, and one heatmap
+    #run every validation and create summaries, significance results, and one heatmap
     output_paths = summarize_outputs(
         outputs_root=args.outputs_root,
         output_dir=args.output_dir,
         zero_tolerance=args.zero_tolerance,
         decimal_places=args.decimal_places,
+        alpha=args.alpha,
     )
     #print each final path so the files are easy to locate on MSI
     for output_path in output_paths:
         print(f"WROTE: {output_path}")
-    #warn against treating descriptive model-direction counts as a significance test
+    #distinguish the descriptive count encoding from the corrected test marker
     print(
-        "NOTE: model direction counts are descriptive; they are not "
-        "statistical-significance tests."
+        "NOTE: model direction counts are descriptive; heatmap asterisks mark "
+        "ensemble-mean tests passing the 72-cell FDR correction."
     )
     #zero tells the shell that the program completed successfully
     return 0

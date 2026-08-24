@@ -103,15 +103,21 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             write_percentile_tables(outputs_root, "p99_9", 2.0)
 
             #run the same complete workflow that the user runs on MSI
-            agreement_path, progression_path, tally_path, heatmap_path = summarize_outputs(
-                outputs_root
-            )
+            (
+                agreement_path,
+                progression_path,
+                significance_path,
+                tally_path,
+                heatmap_path,
+            ) = summarize_outputs(outputs_root)
 
-            #read the two compact csvs and tally while keeping the image path for checks
+            #read the compact and significance csvs while keeping the other output paths
             agreement = pd.read_csv(agreement_path)
             progression = pd.read_csv(progression_path)
+            #the significance table contains the inferential values behind heatmap stars
+            significance = pd.read_csv(significance_path)
             tally_text = tally_path.read_text(encoding="utf-8")
-            #the fourth product must be a real nonempty png rather than a mislabeled file
+            #the heatmap product must be a real nonempty png rather than a mislabeled file
             self.assertEqual(heatmap_path.suffix, ".png")
             self.assertGreater(heatmap_path.stat().st_size, 1000)
             self.assertEqual(
@@ -120,12 +126,24 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             )
             #2 percentiles x 3 scenarios x 3 periods x 4 seasons = 72 rows
             self.assertEqual(len(agreement), 72)
+            #one statistical test is saved for every one of the 72 heatmap cells
+            self.assertEqual(len(significance), 72)
             #2 percentiles x 3 scenarios x 4 seasons = 24 progression rows
             self.assertEqual(len(progression), 24)
             #identifiers plus exactly five agreement metrics gives nine columns
             self.assertEqual(len(agreement.columns), 9)
             #identifiers plus exactly five progression metrics gives eight columns
             self.assertEqual(len(progression.columns), 8)
+            #the significance table preserves the t test, interval, and FDR decision
+            self.assertEqual(
+                list(significance.columns),
+                [
+                    "percentile", "scenario", "period", "season", "model_count",
+                    "ensemble_mean_mps", "mean_ci_low_mps", "mean_ci_high_mps",
+                    "t_statistic", "raw_p_value", "fdr_adjusted_p_value",
+                    "fdr_significant", "alpha", "fdr_family_size",
+                ],
+            )
 
             #check the compact agreement table has only the selected five metrics
             self.assertEqual(
@@ -159,6 +177,30 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             self.assertEqual(int(early_p98["models_increase"]), 5)
             self.assertEqual(int(early_p98["models_decrease"]), 1)
             self.assertEqual(int(early_p98["models_near_zero"]), 0)
+
+            #the matching weak early-period ensemble does not pass the corrected test
+            early_significance = significance[
+                (significance["percentile"] == "p98")
+                & (significance["period"] == "2040-2059")
+                & (significance["scenario"] == "ssp245")
+                & (significance["season"] == "DJF")
+            ].iloc[0]
+            self.assertFalse(bool(early_significance["fdr_significant"]))
+            self.assertLess(float(early_significance["mean_ci_low_mps"]), 0.0)
+            self.assertGreater(float(early_significance["mean_ci_high_mps"]), 0.0)
+            self.assertEqual(int(early_significance["model_count"]), len(MODELS))
+            self.assertEqual(int(early_significance["fdr_family_size"]), 72)
+
+            #the controlled middle-period changes are strong enough to retain a star
+            middle_significance = significance[
+                (significance["percentile"] == "p98")
+                & (significance["period"] == "2060-2079")
+                & (significance["scenario"] == "ssp245")
+                & (significance["season"] == "DJF")
+            ].iloc[0]
+            self.assertTrue(bool(middle_significance["fdr_significant"]))
+            self.assertLess(float(middle_significance["fdr_adjusted_p_value"]), 0.05)
+            self.assertGreater(float(middle_significance["mean_ci_low_mps"]), 0.0)
 
             #select one exact compact progression row
             p98_progression = progression[

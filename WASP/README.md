@@ -121,8 +121,9 @@ It validates each ensemble statistic against the six underlying model values, ro
 ```text
 outputs/ensemble_csv_summary/wasp_agreement_summary.csv
 outputs/ensemble_csv_summary/wasp_progression_summary.csv
+outputs/ensemble_csv_summary/wasp_heatmap_significance.csv
 outputs/ensemble_csv_summary/wasp_summary_tally.txt
-outputs/ensemble_csv_summary/wasp_model_direction_heatmap.png
+outputs/ensemble_csv_summary/wasp_model_direction_significance_heatmap.png
 ```
 
 The agreement CSV keeps every percentile/scenario/period/season separate and contains only five result metrics: ensemble mean, inter-model sample SD, number of models increasing, number decreasing, and number near zero. The three model counts always total six.
@@ -131,7 +132,9 @@ The progression CSV keeps every percentile/scenario/season separate and contains
 
 The text tally follows the concise style of the earlier `Summary of the summary.txt`, but it does not pool percentiles or report a misleading overall percentage. Each of its 18 blocks covers one percentile/scenario/period and reports four seasonal ensemble directions plus 24 model-season direction votes. Every count is followed by the exact seasons or `model/season` pairs behind it, in the standard WASP model and season order. These direction counts are descriptive and are not statistical-significance results.
 
-The single heatmap keeps p98 and p99.9 in separate panels, puts scenarios and periods on the rows, and puts seasons on the columns. Color shows the model-direction balance (`models increasing - models decreasing`) on the fixed possible range from -6 to +6. Every cell also prints the exact increasing, decreasing, and near-zero model counts, so the plot does not rely on color alone. Like the tally, it describes model agreement and is not a statistical-significance result.
+The single heatmap keeps p98 and p99.9 in separate panels, puts scenarios and periods on the rows, and puts seasons on the columns. Color shows the model-direction balance (`models increasing - models decreasing`) on the fixed possible range from -6 to +6. Every cell also prints the exact increasing, decreasing, and near-zero model counts, so the plot does not rely on color alone. An asterisk marks a cell whose six-model ensemble mean differs from zero after the heatmap-wide false-discovery-rate correction described below.
+
+`wasp_heatmap_significance.csv` stores the values behind those markers: the ensemble mean, 95% confidence interval, t statistic, raw p-value, Benjamini-Hochberg adjusted p-value, final significance flag, alpha, and family size. Use `--alpha` to change the default 0.05 confidence and FDR level. The correction always treats all 72 cells in the two-panel heatmap as one test family.
 
 Use `--decimal-places` to override the three-decimal display default if a different precision is required. Older four-table summary files left by a previous program version are no longer created and can be ignored.
 
@@ -141,20 +144,11 @@ Run the tests with: pytest
 
 ## Statistical Significance
 
-The workflow includes three levels of evidence:
+The ensemble summary applies statistical significance to the heatmap cells. For each percentile/scenario/period/season cell, a two-sided one-sample Student t test compares the six model-level regional changes with zero. The accompanying confidence interval uses the same six-model sample standard deviation and five degrees of freedom. Benjamini-Hochberg correction is then applied once across all 72 heatmap p-values, and only cells with adjusted p-values below alpha receive an asterisk.
 
-- Bootstrap confidence intervals
-   randomly takes out blocks of value from your data and treats them as as representative of the larger dataset and calculates stats on that block then returns them to the larger dataset. repeats 1000s of times to build confidence intervals where the actual value lies between a min and max
-- Mann-Whitney U 
-   determines significance between two independent distributions in this case historical v. future
-- Kolmogorov-Smirnov
-   evaluates how two samples compmare to eachother
-   if this does not pass there is not a difference in distribution between historical and future
-- Optional grid-cell bootstrap significance maps with false discovery rate correction
-   trims down significant finding in very large datasets because the larger the dataset the more likely it is to randomly find significance
+This heatmap test answers whether the six-model mean change is distinguishable from zero under the t-test assumptions. The direction counts remain descriptive, and the six climate models are an ensemble of opportunity rather than six guaranteed independent random draws. Interpret the marker as evidence within this model ensemble, not as proof that all possible climate models would behave the same way.
 
-
-The bootstrap can use block resampling so the test does not pretend every value is fully independent. The default block length in the example config is 56 timesteps, which is 7 days of 3-hourly values.
+The separate raw-data workflow also supports block-bootstrap percentile confidence intervals, Mann-Whitney U and Kolmogorov-Smirnov distribution checks, and optional grid-cell bootstrap maps. Those tests do not control the asterisks on the ensemble direction heatmap. The temporal bootstrap can use block resampling so it does not treat every adjacent value as independent; the example config uses 56 timesteps, or 7 days of 3-hourly data.
 
 ## U/V Component Conversion
 
