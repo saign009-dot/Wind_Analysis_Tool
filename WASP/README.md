@@ -23,6 +23,7 @@ The NetCDF inputs analyzed by WASP were first spatially masked to Minnesota and 
 2. `make_mn_masks.py` builds a grid-specific Minnesota mask for each model using a U.S. Census state-boundary shapefile.
 3. `mask_and_split_all.sh` applies each mask with CDO `ifthen` and creates the four seasonal files with CDO `selseas`.
 4. `mask_and_split_all_forMIROC.sh` is the MIROC-specific rerun used when processing that model separately.
+5. `split_masked_all_by_month.sh` is the no-masking follow-on for data that are already Minnesota-masked. It creates one multi-year NetCDF file for each calendar month using CDO `selmon`.
 
 These scripts preserve the project-specific MSI paths used for the analysis. Review `PROJECT_ROOT`, `TOOL_ROOT`, `MASK_DIR`, `SOURCE_BASE`, `STATE_SHAPEFILE`, model names, and filename patterns before reusing them. The masking scripts default to a non-writing preview; pass `run` only after reviewing the displayed paths.
 
@@ -30,6 +31,15 @@ These scripts preserve the project-specific MSI paths used for the analysis. Rev
 bash preprocessing/mask_and_split_all.sh
 bash preprocessing/mask_and_split_all.sh run
 ```
+
+To split already-masked files by calendar month, preview the resolved paths first and then run the monthly splitter:
+
+```bash
+bash preprocessing/split_masked_all_by_month.sh
+bash preprocessing/split_masked_all_by_month.sh run
+```
+
+The monthly splitter supports either a complete `WSPD10_MODEL_RUN_MNmasked.nc` file or the four existing `DJF/MAM/JJA/SON` files. It finds both the preferred `Analysis/MODEL/RUN/` layout and the older shared `Analysis/RUN/` layout. Outputs are written below the matching run directory in `months/` and use sortable `_01.nc` through `_12.nc` suffixes. Each file contains that calendar month across all years in the period; no spatial mask is read or applied. Existing monthly files are preserved unless the run is explicitly submitted with `OVERWRITE=1`.
 
 ## Recommended Workflow
 
