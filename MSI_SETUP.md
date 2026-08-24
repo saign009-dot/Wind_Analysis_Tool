@@ -26,6 +26,7 @@ Keep the same simple layout:
       p99_9_model_changes_final/
       p99_9_ensemble_final/
       p99_9_ensemble_trends/
+      wilks_annual_percentiles/
       ensemble_csv_summary/
   Analysis/
     BCC-CSM2-MR/
@@ -139,16 +140,26 @@ The manifest builder validates all required files before writing its 216 task ro
 
 The p98 change stage defaults to `outputs/p98_model_changes/`, but the p98 ensemble and trend stages default to `outputs/p98_model_changes_final/`. After checking the model-level results, either copy or move the accepted files into the `final` directory or submit the later stages with `INPUT_ROOT` set to the reviewed location. The p99.9 workflow writes and reads `outputs/p99_9_model_changes_final/` by default.
 
-## Summarize Completed Ensemble Tables
+## Calculate Wilks Heatmap Tests and Summarize the Ensemble Tables
 
-After the p98 and p99.9 trend jobs finish successfully, activate the same Python environment used for WASP and run:
+The heatmap significance calculation needs the seasonal model NetCDF files referenced by the manifest; the four regional trend CSVs alone do not contain annual values or autocorrelation. Submit the 216-task annual-series array after the manifest has been validated:
 
 ```bash
 cd /projects/standard/hroop/shared/saign009/WSPD10_wind_program/Wind_Analysis_Tool/WASP
+sbatch slurm_wilks_annual_percentiles.sh
+```
+
+After all array tasks finish successfully, activate the same Python environment used for WASP, calculate one combined ensemble time-series test per heatmap cell, and then create the heatmap:
+
+```bash
+cd /projects/standard/hroop/shared/saign009/WSPD10_wind_program/Wind_Analysis_Tool/WASP
+python wilks_heatmap_significance.py
 python summarize_ensemble_csvs.py
 ```
 
-The program validates the four generated regional CSV tables and writes four compact products below `outputs/ensemble_csv_summary/`: `wasp_agreement_summary.csv`, `wasp_progression_summary.csv`, `wasp_summary_tally.txt`, and `wasp_model_direction_heatmap.png`. Each CSV has only five result metrics, and displayed wind values default to three decimal places (`0.001 m/s`). The text tally keeps percentiles separate, uses explicit denominators of four seasons and 24 model-season values, and lists the exact seasons and `model/season` pairs behind every positive, negative, and near-zero count. It does not report a pooled overall percentage. The heatmap puts scenario/period combinations on rows and seasons on columns, with separate p98 and p99.9 panels; color shows increasing-model count minus decreasing-model count, while each cell prints the exact `+ / - / near-zero` counts. These direction counts describe model agreement and are not statistical-significance results.
+The first program writes `wasp_heatmap_wilks_significance.csv` and `wasp_combined_ensemble_annual_percentiles.csv`. The second validates those results plus the four generated regional trend CSVs and writes `wasp_agreement_summary.csv`, `wasp_progression_summary.csv`, `wasp_summary_tally.txt`, and `wasp_model_direction_wilks_significance_heatmap.png` below `outputs/ensemble_csv_summary/`. Displayed wind values default to three decimal places (`0.001 m/s`). The text tally keeps percentiles separate, uses explicit denominators of four seasons and 24 model-season values, and lists the exact seasons and `model/season` pairs behind every positive, negative, and near-zero count. It does not report a pooled overall percentage.
+
+The heatmap puts scenario/period combinations on rows and seasons on columns, with separate p98 and p99.9 panels. Color and the `+ / - / near-zero` labels use each model's change in mean annual percentile. An asterisk uses that cell's raw two-sided Welch p-value after its historical and future sample sizes are separately adjusted with the Wilks lag-1 effective-sample-size formula. No FDR correction is applied. See the statistical-significance section in `WASP/README.md` for the equations, assumptions, and full output schema.
 
 ## Open Jupyter on MSI
 

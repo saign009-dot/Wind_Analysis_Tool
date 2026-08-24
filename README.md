@@ -26,6 +26,6 @@ During Slurm ensemble runs, WASP creates untracked `WASP/manifests/`, `WASP/logs
 
 ## Added Ensemble Capabilities
 
-The WASP workflow includes model-level 98th and 99.9th percentile change calculations, six-model ensemble means, inter-model sample standard deviations, model counts, regional trend tables and plots, CSV-only result summaries, and Slurm launchers for MSI.
+The WASP workflow includes model-level 98th and 99.9th percentile change calculations, six-model ensemble means, inter-model sample standard deviations, model counts, regional trend tables and plots, CSV-only result summaries, and Slurm launchers for MSI. Heatmap significance uses one combined six-model annual time-series test per cell, with Wilks lag-1 effective sample sizes and no FDR correction; the complete method and runnable sequence are documented in [`WASP/README.md`](WASP/README.md#statistical-significance).
 
 Large NetCDF inputs and generated outputs are intentionally not duplicated in this repository. They are stored, respectively, on MCAP MSI storage and in the MCAP team drive under `proj_wind analysis_undergradRA`.

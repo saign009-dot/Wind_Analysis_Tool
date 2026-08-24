@@ -2,9 +2,9 @@
 
 #overall flow is find the four trend csv files -> validate them -> rebuild the
 #ensemble statistics from the model rows -> add direction and agreement fields
-#-> test each heatmap cell against zero and correct the 72 p-values -> put the
+#-> read the separately calculated Wilks-corrected time-series results -> put the
 #three periods beside each other -> create a concise direction tally -> draw one
-#compact heatmap of seasonal model-direction agreement and significance
+#compact heatmap of seasonal model direction and time-series significance
 
 #allows modern type hints to work consistently with the supported python versions
 from __future__ import annotations
@@ -18,8 +18,6 @@ from pathlib import Path
 import numpy as np
 #used to read, group, merge, check, and write all of the csv tables
 import pandas as pd
-#provides the Student t distribution used by the six-model heatmap-cell tests
-from scipy import stats
 #selects a noninteractive plotting backend that works inside headless Slurm jobs
 import matplotlib
 
@@ -54,6 +52,18 @@ SEASONS = ("DJF", "MAM", "JJA", "SON")
 PERCENTILE_INPUTS = {
     "p98": {"probability": 0.98, "directory": "p98_ensemble_trends"},
     "p99_9": {"probability": 0.999, "directory": "p99_9_ensemble_trends"},
+}
+#the Wilks table has a deliberately different schema from the retired FDR table
+WILKS_REQUIRED = {
+    "percentile", "scenario", "period", "season", "model_count",
+    "models_increase", "models_decrease", "models_near_zero",
+    "ensemble_mean_change_mps", "inter_model_sd_mps",
+    "historical_years", "future_years",
+    "historical_lag1_autocorrelation", "future_lag1_autocorrelation",
+    "historical_effective_sample_size", "future_effective_sample_size",
+    "welch_t_statistic", "welch_degrees_of_freedom",
+    "mean_change_ci_low_mps", "mean_change_ci_high_mps",
+    "raw_p_value", "wilks_significant", "alpha", "confidence_level", "units",
 }
 #columns that must exist in each six-model ensemble summary csv
 SUMMARY_REQUIRED = {
@@ -277,108 +287,89 @@ def _validate_decimal_places(decimal_places: int) -> None:
         raise ValueError("decimal_places must be between 0 and 6")
 
 
-#controls the expected proportion of false discoveries across all heatmap cells
-def _benjamini_hochberg(
-    p_values: np.ndarray,
-    alpha: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return Benjamini-Hochberg rejection flags and adjusted p-values."""
-    if not 0.0 < alpha < 1.0:
-        raise ValueError("alpha must be between 0 and 1")
-    p_values = np.asarray(p_values, dtype=float)
-    if p_values.ndim != 1 or not np.isfinite(p_values).all():
-        raise ValueError("Heatmap significance p-values must be a finite 1D array")
-    if np.any((p_values < 0.0) | (p_values > 1.0)):
-        raise ValueError("Heatmap significance p-values must be between 0 and 1")
-
-    test_count = p_values.size
-    order = np.argsort(p_values)
-    sorted_p = p_values[order]
-    ranks = np.arange(1, test_count + 1, dtype=float)
-    adjusted_sorted = sorted_p * test_count / ranks
-    #the reverse cumulative minimum enforces monotonic adjusted p-values
-    adjusted_sorted = np.minimum.accumulate(adjusted_sorted[::-1])[::-1]
-    adjusted_sorted = np.clip(adjusted_sorted, 0.0, 1.0)
-    adjusted = np.empty(test_count, dtype=float)
-    adjusted[order] = adjusted_sorted
-    return adjusted <= alpha, adjusted
-
-
-#tests whether the six-model ensemble mean in each heatmap cell differs from zero
-def build_heatmap_significance(
-    model_values: pd.DataFrame,
-    alpha: float = 0.05,
-) -> pd.DataFrame:
-    """Calculate per-cell t tests, confidence intervals, and heatmap-wide FDR."""
-    if not 0.0 < alpha < 1.0:
-        raise ValueError("alpha must be between 0 and 1")
-
-    records: list[dict[str, object]] = []
-    for keys, group in model_values.groupby(COMBINATION_COLUMNS, sort=False):
-        percentile, scenario, period, season = keys
-        values = group["regional_change"].to_numpy(dtype=float)
-        if len(values) != len(MODELS) or not np.isfinite(values).all():
-            raise ValueError(
-                f"Expected {len(MODELS)} finite model changes for {keys}"
-            )
-
-        model_count = len(values)
-        degrees_of_freedom = model_count - 1
-        ensemble_mean = float(values.mean())
-        sample_sd = float(values.std(ddof=1))
-        if sample_sd == 0.0:
-            #a constant nonzero ensemble has no estimated sampling uncertainty;
-            #an all-zero ensemble exactly matches the null value
-            if ensemble_mean == 0.0:
-                t_statistic = 0.0
-                raw_p_value = 1.0
-            else:
-                t_statistic = float(np.copysign(np.inf, ensemble_mean))
-                raw_p_value = 0.0
-            ci_low = ensemble_mean
-            ci_high = ensemble_mean
-        else:
-            standard_error = sample_sd / np.sqrt(model_count)
-            t_statistic = ensemble_mean / standard_error
-            raw_p_value = float(
-                2.0 * stats.t.sf(abs(t_statistic), degrees_of_freedom)
-            )
-            critical_t = float(
-                stats.t.ppf(1.0 - alpha / 2.0, degrees_of_freedom)
-            )
-            margin = critical_t * standard_error
-            ci_low = ensemble_mean - margin
-            ci_high = ensemble_mean + margin
-
-        records.append({
-            "percentile": percentile,
-            "scenario": scenario,
-            "period": period,
-            "season": season,
-            "model_count": model_count,
-            "ensemble_mean_mps": ensemble_mean,
-            "mean_ci_low_mps": ci_low,
-            "mean_ci_high_mps": ci_high,
-            "t_statistic": t_statistic,
-            "raw_p_value": raw_p_value,
-        })
-
-    result = pd.DataFrame.from_records(records)
-    expected_cells = (
-        len(PERCENTILE_INPUTS) * len(SCENARIOS) * len(PERIODS) * len(SEASONS)
-    )
-    if len(result) != expected_cells:
-        raise ValueError(
-            f"Expected {expected_cells} heatmap significance tests; found {len(result)}"
+#reads and fully validates the independently calculated 72-cell Wilks table
+def read_wilks_significance(path: str | Path) -> pd.DataFrame:
+    """Return a checked Wilks time-series significance table for the heatmap."""
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Required Wilks heatmap table not found: {path}. Run "
+            "wilks_heatmap_significance.py after the annual Slurm array finishes."
         )
-    rejected, adjusted = _benjamini_hochberg(
-        result["raw_p_value"].to_numpy(dtype=float), alpha
+    table = pd.read_csv(path)
+    _require_columns(table, WILKS_REQUIRED, path)
+    _require_unique(table, COMBINATION_COLUMNS, path)
+
+    expected_combinations = {
+        (percentile, scenario, period, season)
+        for percentile in PERCENTILE_INPUTS
+        for scenario in SCENARIOS
+        for period in PERIODS
+        for season in SEASONS
+    }
+    actual_combinations = set(
+        table[COMBINATION_COLUMNS].itertuples(index=False, name=None)
     )
-    result["fdr_adjusted_p_value"] = adjusted
-    result["fdr_significant"] = rejected
-    result["alpha"] = alpha
-    result["fdr_family_size"] = expected_cells
-    return result
+    if actual_combinations != expected_combinations:
+        raise ValueError(
+            f"{path} does not contain the expected 72 Wilks heatmap cells; "
+            f"missing={sorted(expected_combinations - actual_combinations)}, "
+            f"unexpected={sorted(actual_combinations - expected_combinations)}"
+        )
+
+    numeric_columns = [
+        "model_count", "models_increase", "models_decrease", "models_near_zero",
+        "ensemble_mean_change_mps", "inter_model_sd_mps",
+        "historical_years", "future_years",
+        "historical_lag1_autocorrelation", "future_lag1_autocorrelation",
+        "historical_effective_sample_size", "future_effective_sample_size",
+        "welch_t_statistic", "welch_degrees_of_freedom",
+        "mean_change_ci_low_mps", "mean_change_ci_high_mps",
+        "raw_p_value", "alpha", "confidence_level",
+    ]
+    _numeric(table, numeric_columns, path)
+    if not np.isfinite(table[numeric_columns].to_numpy(dtype=float)).all():
+        raise ValueError(f"{path} contains nonfinite Wilks results")
+    if not (table["model_count"] == len(MODELS)).all():
+        raise ValueError(f"{path} must use all {len(MODELS)} models in every cell")
+    count_total = (
+        table["models_increase"]
+        + table["models_decrease"]
+        + table["models_near_zero"]
+    )
+    if not (count_total == len(MODELS)).all():
+        raise ValueError(f"{path} model-direction counts must total {len(MODELS)}")
+    if not table["raw_p_value"].between(0.0, 1.0).all():
+        raise ValueError(f"{path} raw p-values must be between 0 and 1")
+
+    #pandas normally infers True/False from CSV, but this explicit conversion also
+    #rejects ambiguous strings such as yes/no instead of treating them as truthy
+    boolean_map = {
+        True: True, False: False, "True": True, "False": False,
+        "true": True, "false": False, 1: True, 0: False,
+    }
+    decisions = table["wilks_significant"].map(boolean_map)
+    if decisions.isna().any():
+        raise ValueError(f"{path} contains invalid wilks_significant flags")
+    table["wilks_significant"] = decisions.astype(bool)
+
+    alpha_values = table["alpha"].drop_duplicates().to_numpy(dtype=float)
+    if len(alpha_values) != 1 or not 0.0 < alpha_values[0] < 1.0:
+        raise ValueError(f"{path} must use one valid alpha across all 72 cells")
+    alpha = float(alpha_values[0])
+    if not np.allclose(table["confidence_level"], 1.0 - alpha):
+        raise ValueError(f"{path} confidence level does not equal 1 - alpha")
+    expected_decisions = table["raw_p_value"].to_numpy(dtype=float) < alpha
+    if not np.array_equal(table["wilks_significant"].to_numpy(), expected_decisions):
+        raise ValueError(f"{path} significance flags do not match raw p < alpha")
+    if (table["historical_effective_sample_size"] <= 1.0).any() or (
+        table["future_effective_sample_size"] <= 1.0
+    ).any():
+        raise ValueError(f"{path} contains unusable Wilks effective sample sizes")
+    units = set(table["units"].dropna().astype(str))
+    if len(units) != 1:
+        raise ValueError(f"{path} must contain one consistent physical unit")
+    return table
 
 
 #creates the compact 72-row agreement table with exactly five result metrics
@@ -660,49 +651,30 @@ def write_summary_tally(table: pd.DataFrame, output_path: str | Path) -> Path:
     return output_path
 
 
-#draws one heatmap that compares seasonal direction counts and corrected significance
+#draws one heatmap with annual-statistic directions and Wilks-corrected significance
 def write_direction_heatmap(
-    agreement_summary: pd.DataFrame,
     significance_summary: pd.DataFrame,
     output_path: str | Path,
 ) -> Path:
-    """Plot model-direction agreement and corrected ensemble significance."""
+    """Plot model directions and one Wilks-corrected test per heatmap cell."""
     #normalize the output path and create its parent when this function is used alone
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    #these fields supply every identifier and direction count used in the heatmap
+    #these fields supply every identifier, direction count, and marker used in the plot
     required = {
         "percentile", "scenario", "period", "season",
         "models_increase", "models_decrease", "models_near_zero",
+        "raw_p_value", "wilks_significant", "alpha",
     }
-    #stop with a direct message if a caller passes the wrong summary table
-    missing = sorted(required.difference(agreement_summary.columns))
+    #stop with a direct message if a caller passes a stale FDR-era summary table
+    missing = sorted(required.difference(significance_summary.columns))
     if missing:
         raise ValueError(
-            "Agreement summary is missing heatmap columns: " + ", ".join(missing)
+            "Wilks summary is missing heatmap columns: " + ", ".join(missing)
         )
-    significance_required = {
-        *COMBINATION_COLUMNS, "fdr_adjusted_p_value", "fdr_significant", "alpha",
-    }
-    significance_missing = sorted(
-        significance_required.difference(significance_summary.columns)
-    )
-    if significance_missing:
-        raise ValueError(
-            "Significance summary is missing heatmap columns: "
-            + ", ".join(significance_missing)
-        )
-    #join by the four cell identifiers so a significance flag cannot drift to another cell
-    heatmap_summary = agreement_summary.merge(
-        significance_summary[
-            [*COMBINATION_COLUMNS, "fdr_adjusted_p_value", "fdr_significant"]
-        ],
-        on=COMBINATION_COLUMNS,
-        how="inner",
-        validate="one_to_one",
-    )
-    if len(heatmap_summary) != len(agreement_summary):
-        raise ValueError("Not every agreement cell has one matching significance result")
+    #the Wilks output already contains direction counts calculated from the same
+    #annual percentile statistic, so it is the sole data source for heatmap cells
+    heatmap_summary = significance_summary.copy()
     #the legend must report the exact threshold used to create every marker
     alpha_values = significance_summary["alpha"].drop_duplicates().to_numpy(dtype=float)
     if len(alpha_values) != 1:
@@ -740,7 +712,7 @@ def write_direction_heatmap(
             #reindex applies the standard scientific order instead of alphabetic order
             count_grids[column] = grid.reindex(index=row_order, columns=SEASONS)
         significance_grid = panel.pivot(
-            index=["scenario", "period"], columns="season", values="fdr_significant"
+            index=["scenario", "period"], columns="season", values="wilks_significant"
         ).reindex(index=row_order, columns=SEASONS)
         #missing cells would otherwise be silently displayed as a blank heatmap square
         if (
@@ -770,7 +742,7 @@ def write_direction_heatmap(
                 significant = bool(significance_grid.iloc[row_number, season_number])
                 #white text stays readable on strongly colored cells at either extreme
                 text_color = "white" if abs(balance[row_number, season_number]) >= 4 else "black"
-                #an asterisk identifies only cells passing heatmap-wide FDR correction
+                #an asterisk identifies this cell's raw Wilks-adjusted p-value below alpha
                 marker = "  *" if significant else ""
                 #the label order matches the + / - / 0 and significance keys below
                 axis.text(
@@ -802,7 +774,7 @@ def write_direction_heatmap(
         raise ValueError("No percentile panels were available for the agreement heatmap")
     #one title explains the chart without repeating it above both percentile panels
     figure.suptitle(
-        "WASP model direction agreement and ensemble significance by season",
+        "WASP annual-percentile direction and Wilks significance by season",
         fontsize=14,
         fontweight="bold",
     )
@@ -826,9 +798,8 @@ def write_direction_heatmap(
     figure.text(
         0.5,
         0.012,
-        "* two-sided one-sample t test of the six-model mean, significant after "
-        "Benjamini-Hochberg FDR correction across all 72 cells "
-        f"(q < {significance_alpha:g}).",
+        "* one two-sided Welch test per cell, using Wilks lag-1 effective sample "
+        f"sizes (raw p < {significance_alpha:g}; no FDR correction).",
         ha="center",
         va="center",
         fontsize=8.2,
@@ -845,15 +816,21 @@ def write_direction_heatmap(
 def summarize_outputs(
     outputs_root: str | Path = "outputs",
     output_dir: str | Path | None = None,
+    wilks_significance_path: str | Path | None = None,
     zero_tolerance: float = 0.0,
     decimal_places: int = 3,
-    alpha: float = 0.05,
 ) -> tuple[Path, Path, Path, Path, Path]:
-    """Validate inputs and write summaries, significance results, and a heatmap."""
+    """Validate inputs and write summaries plus the Wilks-marked heatmap."""
     #convert the source output folder into a Path for consistent path joining
     outputs_root = Path(outputs_root)
     #use a requested destination or default to a new folder under WASP outputs
     destination = Path(output_dir) if output_dir else outputs_root / "ensemble_csv_summary"
+    #by default consume the significance CSV written by wilks_heatmap_significance.py
+    significance_path = (
+        Path(wilks_significance_path)
+        if wilks_significance_path
+        else destination / "wasp_heatmap_wilks_significance.csv"
+    )
     #hold the checked p98 and p99.9 ensemble tables until they can be joined
     ensemble_tables: list[pd.DataFrame] = []
     #hold the checked p98 and p99.9 model-value tables until they can be joined
@@ -875,8 +852,9 @@ def summarize_outputs(
         zero_tolerance,
         decimal_places,
     )
-    #test the same six regional model changes represented by each heatmap cell
-    significance_summary = build_heatmap_significance(model_values, alpha=alpha)
+    #the raw model NetCDF workflow, not this summary script, creates the annual
+    #series and one Wilks-corrected time-series test for every heatmap cell
+    significance_summary = read_wilks_significance(significance_path)
     #make the compact 24-row progression table with five result metrics
     progression_summary = build_progression_summary(
         ensemble_summary,
@@ -890,20 +868,17 @@ def summarize_outputs(
     #give the compact summaries, test results, tally, and heatmap descriptive names
     agreement_path = destination / "wasp_agreement_summary.csv"
     progression_path = destination / "wasp_progression_summary.csv"
-    significance_path = destination / "wasp_heatmap_significance.csv"
     tally_path = destination / "wasp_summary_tally.txt"
-    heatmap_path = destination / "wasp_model_direction_significance_heatmap.png"
+    heatmap_path = destination / "wasp_model_direction_wilks_significance_heatmap.png"
     #fixed float formatting keeps every displayed wind value at the same compact precision
     float_format = f"%.{decimal_places}f"
     #write compact plain csv files without pandas row numbers
     agreement_summary.to_csv(agreement_path, index=False, float_format=float_format)
     progression_summary.to_csv(progression_path, index=False, float_format=float_format)
-    #retain full inferential precision instead of rounding small p-values to zero
-    significance_summary.to_csv(significance_path, index=False)
     #write the human-readable tally after its counts are calculated
     write_summary_tally(summary_tally, tally_path)
-    #draw counts and corrected significance from the two validated cell-level tables
-    write_direction_heatmap(agreement_summary, significance_summary, heatmap_path)
+    #draw both counts and significance from the annual-statistic Wilks result table
+    write_direction_heatmap(significance_summary, heatmap_path)
     #return every created path so the command line can print them for the user
     return (
         agreement_path,
@@ -930,6 +905,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         help="Destination directory. Defaults to OUTPUTS_ROOT/ensemble_csv_summary.",
     )
+    #an override supports shared-storage layouts where the Wilks CSV lives elsewhere
+    parser.add_argument(
+        "--wilks-significance",
+        help=(
+            "Wilks result CSV. Defaults to OUTPUT_DIR/"
+            "wasp_heatmap_wilks_significance.csv."
+        ),
+    )
     #optional tolerance lets very small changes be treated as near zero
     parser.add_argument(
         "--zero-tolerance", type=float, default=0.0,
@@ -939,11 +922,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--decimal-places", type=int, default=3,
         help="Decimal places for displayed wind values. Defaults to 3 (0.001 m/s).",
-    )
-    #alpha controls both the confidence intervals and final FDR decision threshold
-    parser.add_argument(
-        "--alpha", type=float, default=0.05,
-        help="Significance and FDR level for the 72 heatmap-cell tests (default: 0.05).",
     )
     #return the configured parser so main can parse the actual command line
     return parser
@@ -957,17 +935,17 @@ def main(argv: list[str] | None = None) -> int:
     output_paths = summarize_outputs(
         outputs_root=args.outputs_root,
         output_dir=args.output_dir,
+        wilks_significance_path=args.wilks_significance,
         zero_tolerance=args.zero_tolerance,
         decimal_places=args.decimal_places,
-        alpha=args.alpha,
     )
     #print each final path so the files are easy to locate on MSI
     for output_path in output_paths:
         print(f"WROTE: {output_path}")
-    #distinguish the descriptive count encoding from the corrected test marker
+    #state the exact marker rule and make the absence of multiplicity correction explicit
     print(
-        "NOTE: model direction counts are descriptive; heatmap asterisks mark "
-        "ensemble-mean tests passing the 72-cell FDR correction."
+        "NOTE: heatmap asterisks mark raw per-cell Welch p-values calculated with "
+        "Wilks lag-1 effective sample sizes; no FDR correction is applied."
     )
     #zero tells the shell that the program completed successfully
     return 0

@@ -12,6 +12,8 @@ import pandas as pd
 
 #imports the complete summary workflow being checked by these tests
 from summarize_ensemble_csvs import summarize_outputs
+#imports the production column order used by the independent Wilks calculation
+from wilks_heatmap_significance import SIGNIFICANCE_COLUMNS
 
 
 #uses the exact six production model names required by the validation code
@@ -89,6 +91,52 @@ def write_percentile_tables(outputs_root: Path, label: str, multiplier: float) -
     )
 
 
+#writes a complete synthetic result from the separate annual time-series workflow
+def write_wilks_significance(outputs_root: Path) -> Path:
+    """Create the 72 checked Wilks rows consumed by the summary heatmap."""
+    destination = outputs_root / "ensemble_csv_summary"
+    destination.mkdir(parents=True, exist_ok=True)
+    path = destination / "wasp_heatmap_wilks_significance.csv"
+    rows: list[dict[str, object]] = []
+    for label, multiplier in (("p98", 1.0), ("p99_9", 2.0)):
+        for scenario in SCENARIOS:
+            for period, base_values in PERIOD_VALUES.items():
+                values = np.asarray(base_values, dtype=float) * multiplier
+                #the controlled early row is nonsignificant; later rows are significant
+                raw_p_value = 0.2 if period == "2040-2059" else 0.01
+                ci_low = -0.1 if raw_p_value >= 0.05 else 0.1
+                for season in SEASONS:
+                    rows.append({
+                        "percentile": label,
+                        "scenario": scenario,
+                        "period": period,
+                        "season": season,
+                        "model_count": len(MODELS),
+                        "models_increase": int(np.count_nonzero(values > 0.0)),
+                        "models_decrease": int(np.count_nonzero(values < 0.0)),
+                        "models_near_zero": int(np.count_nonzero(values == 0.0)),
+                        "ensemble_mean_change_mps": float(values.mean()),
+                        "inter_model_sd_mps": float(values.std(ddof=1)),
+                        "historical_years": 20,
+                        "future_years": 20,
+                        "historical_lag1_autocorrelation": 0.2,
+                        "future_lag1_autocorrelation": 0.1,
+                        "historical_effective_sample_size": 13.3333333333,
+                        "future_effective_sample_size": 16.3636363636,
+                        "welch_t_statistic": 1.0 if raw_p_value >= 0.05 else 3.5,
+                        "welch_degrees_of_freedom": 25.0,
+                        "mean_change_ci_low_mps": ci_low,
+                        "mean_change_ci_high_mps": float(values.mean() + 0.3),
+                        "raw_p_value": raw_p_value,
+                        "wilks_significant": raw_p_value < 0.05,
+                        "alpha": 0.05,
+                        "confidence_level": 0.95,
+                        "units": "m s-1",
+                    })
+    pd.DataFrame(rows, columns=SIGNIFICANCE_COLUMNS).to_csv(path, index=False)
+    return path
+
+
 #groups all calculation tests for summarize_ensemble_csvs.py
 class EnsembleCsvSummaryTests(unittest.TestCase):
     #checks both compact csv files, the concise text tally, and the one summary heatmap
@@ -101,6 +149,8 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             write_percentile_tables(outputs_root, "p98", 1.0)
             #create a complete p99.9 source dataset with values twice as large
             write_percentile_tables(outputs_root, "p99_9", 2.0)
+            #the summary stage consumes, but does not invent, the raw-data Wilks results
+            wilks_path = write_wilks_significance(outputs_root)
 
             #run the same complete workflow that the user runs on MSI
             (
@@ -109,7 +159,10 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
                 significance_path,
                 tally_path,
                 heatmap_path,
-            ) = summarize_outputs(outputs_root)
+            ) = summarize_outputs(
+                outputs_root,
+                wilks_significance_path=wilks_path,
+            )
 
             #read the compact and significance csvs while keeping the other output paths
             agreement = pd.read_csv(agreement_path)
@@ -134,16 +187,9 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             self.assertEqual(len(agreement.columns), 9)
             #identifiers plus exactly five progression metrics gives eight columns
             self.assertEqual(len(progression.columns), 8)
-            #the significance table preserves the t test, interval, and FDR decision
-            self.assertEqual(
-                list(significance.columns),
-                [
-                    "percentile", "scenario", "period", "season", "model_count",
-                    "ensemble_mean_mps", "mean_ci_low_mps", "mean_ci_high_mps",
-                    "t_statistic", "raw_p_value", "fdr_adjusted_p_value",
-                    "fdr_significant", "alpha", "fdr_family_size",
-                ],
-            )
+            #the independent significance table preserves the Wilks ESS and raw decision
+            self.assertEqual(list(significance.columns), SIGNIFICANCE_COLUMNS)
+            self.assertNotIn("fdr_adjusted_p_value", significance.columns)
 
             #check the compact agreement table has only the selected five metrics
             self.assertEqual(
@@ -178,29 +224,31 @@ class EnsembleCsvSummaryTests(unittest.TestCase):
             self.assertEqual(int(early_p98["models_decrease"]), 1)
             self.assertEqual(int(early_p98["models_near_zero"]), 0)
 
-            #the matching weak early-period ensemble does not pass the corrected test
+            #the matching weak early-period time series does not pass its raw cell test
             early_significance = significance[
                 (significance["percentile"] == "p98")
                 & (significance["period"] == "2040-2059")
                 & (significance["scenario"] == "ssp245")
                 & (significance["season"] == "DJF")
             ].iloc[0]
-            self.assertFalse(bool(early_significance["fdr_significant"]))
-            self.assertLess(float(early_significance["mean_ci_low_mps"]), 0.0)
-            self.assertGreater(float(early_significance["mean_ci_high_mps"]), 0.0)
+            self.assertFalse(bool(early_significance["wilks_significant"]))
+            self.assertLess(float(early_significance["mean_change_ci_low_mps"]), 0.0)
+            self.assertGreater(float(early_significance["mean_change_ci_high_mps"]), 0.0)
             self.assertEqual(int(early_significance["model_count"]), len(MODELS))
-            self.assertEqual(int(early_significance["fdr_family_size"]), 72)
+            self.assertGreater(
+                float(early_significance["historical_effective_sample_size"]), 1.0
+            )
 
-            #the controlled middle-period changes are strong enough to retain a star
+            #the controlled middle-period series is strong enough to receive a star
             middle_significance = significance[
                 (significance["percentile"] == "p98")
                 & (significance["period"] == "2060-2079")
                 & (significance["scenario"] == "ssp245")
                 & (significance["season"] == "DJF")
             ].iloc[0]
-            self.assertTrue(bool(middle_significance["fdr_significant"]))
-            self.assertLess(float(middle_significance["fdr_adjusted_p_value"]), 0.05)
-            self.assertGreater(float(middle_significance["mean_ci_low_mps"]), 0.0)
+            self.assertTrue(bool(middle_significance["wilks_significant"]))
+            self.assertLess(float(middle_significance["raw_p_value"]), 0.05)
+            self.assertGreater(float(middle_significance["mean_change_ci_low_mps"]), 0.0)
 
             #select one exact compact progression row
             p98_progression = progression[
