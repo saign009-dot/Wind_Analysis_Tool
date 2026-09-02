@@ -82,10 +82,11 @@ def plot(months, mo_mean, mo_sd, run, percentile):
     )
 
     ax.set_ylabel('Change in Wind Speed (m/s-1)')
+    ax.set_xlabel('Month')
     ax.set_title(f'Change in {percentile} Wind Speed for {run}')
 
     plt.tight_layout()
-    plt.savefig(f'{run}_{percentile}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{run}_{percentile}.png', dpi=300, bbox_inches='tight') #should make this so it saves to a specific folder instead of the working directory
 
 
 #make some lists that can be used for loops
