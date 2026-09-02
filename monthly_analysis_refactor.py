@@ -1,5 +1,5 @@
 #dependencies
-from pathlib import Path #for file path handling
+from pathlib import Path#for file path handling
 import xarray as xr #for netcdf handling
 import numpy as np #for cosine latt weighting
 import matplotlib.pyplot as plt #for visualization
@@ -39,7 +39,7 @@ def monthly_change_summary(root, future_run, month, variable):
 #identify all dims except model and avarage them also aggregate values for single month change into one value per model
     field=change
     spatial_dimensions=tuple(
-    dimension for dimension in field.dims if dimension != 'model')
+    dimension for dimension in field.dims if dimension == 'lat' or dimension=='lon')
 #weight by area avarage
     latitude_weights=np.cos(
         np.deg2rad(field['lat'])
