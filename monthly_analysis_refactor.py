@@ -4,6 +4,7 @@ import xarray as xr #for netcdf handling
 import numpy as np #for cosine latt weighting
 import matplotlib.pyplot as plt #for visualization
 from matplotlib.ticker import MultipleLocator #for axis and gridline customizability
+from scipy import stats #for t-test
 
 
 
@@ -56,15 +57,21 @@ def monthly_change_summary(root, future_run, month, variable):
     return model_changes, ensemble_mean, inter_model_sd
 
 
+
+def t_test(model_changes):
+    test=stats.ttest_1samp(model_changes.values,popmean=0,alternative='two-sided')
+    result=test.pvalue
+    return result
 #plot the change with the model spread
-def plot(months, mo_mean, mo_sd, run, percentile):
+def plot(months, mo_mean, mo_sd,run, percentile, mo_p):
     fig, ax=plt.subplots(figsize=(10,5))
 
     ax.bar(months, mo_mean, yerr=mo_sd, capsize=5, color='blue')
+    for month, value, sd, p_value in zip(months, mo_mean, mo_sd, mo_p):
+        ax.annotate(f'p={p_value:.3f}', xy=(month, value + sd), ha='center', va='bottom', fontsize=8, xytext=(0, 5), textcoords='offset points')
     ax.axhline(0, color='black', linewidth=0.5)
     ax.yaxis.set_major_locator(MultipleLocator(0.1))
     ax.set_axisbelow(True)
-
     ax.grid(
         axis="y",
         linestyle="--",
@@ -98,6 +105,7 @@ for percentile in percentiles:
     for run in future_runs:
         mo_mean=[]
         mo_sd=[]
+        mo_p=[]
     #loopo through producing a monthly summary for each month and storing the results in lists
         for month in months:
             model_changes, ensemble_mean, inter_model_sd = monthly_change_summary(
@@ -109,9 +117,10 @@ for percentile in percentiles:
             month=month,
             variable=percentile,
         )
+            test_result=t_test(model_changes)
             mo_mean.append(ensemble_mean.item())
             mo_sd.append(inter_model_sd.item())
-
+            mo_p.append(test_result)
 
     #call the graphing function
-        plot(months, mo_mean, mo_sd, run, percentile)
+        plot(months, mo_mean, mo_sd, run, percentile, mo_p)
